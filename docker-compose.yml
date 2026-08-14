@@ -1,0 +1,29 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    volumes:
+      # Necessario per gestire i container dei modelli sull'host Docker.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Richiede l'NVIDIA Container Toolkit installato sull'host: senza,
+    # `docker compose up` fallisce con "could not select device driver nvidia".
+    # Se l'host non ha GPU NVIDIA, rimuovi questo blocco.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_PROXY_TARGET=http://backend:8080
+    depends_on:
+      - backend
