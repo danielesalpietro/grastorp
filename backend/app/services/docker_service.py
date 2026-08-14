@@ -11,9 +11,13 @@ from __future__ import annotations
 import docker
 from docker.errors import DockerException, NotFound
 
-from app.schemas import Deployment, Framework, WebUI
+from app.schemas import ComputeMode, Deployment, Framework, WebUI
 
 _VLLM_IMAGE = "vllm/vllm-openai:latest"
+# Nota: l'immagine pubblica vllm/vllm-openai è compilata per CUDA. La modalità
+# CPU Only passa --device cpu ma per un'inferenza CPU realmente funzionante
+# serve un'immagine costruita per il target CPU (vedi docker/Dockerfile.cpu
+# nel repo di vLLM); da sostituire quando si attiva davvero questa modalità.
 
 _client: docker.DockerClient | None = None
 
@@ -31,10 +35,13 @@ def _build_vllm_command(deployment: Deployment) -> list[str]:
         "--host", "0.0.0.0",
         "--port", str(deployment.network.api_port),
     ]
-    if deployment.resources.gpu_indices:
-        cmd += ["--tensor-parallel-size", str(len(deployment.resources.gpu_indices))]
-    if deployment.resources.offload.enabled:
-        cmd += ["--cpu-offload-gb", str(deployment.resources.offload.cpu_offload_gb)]
+    if deployment.resources.compute_mode is ComputeMode.GPU:
+        if deployment.resources.gpu_indices:
+            cmd += ["--tensor-parallel-size", str(len(deployment.resources.gpu_indices))]
+        if deployment.resources.offload.enabled:
+            cmd += ["--cpu-offload-gb", str(deployment.resources.offload.cpu_offload_gb)]
+    else:
+        cmd += ["--device", "cpu"]
     return cmd
 
 
@@ -49,7 +56,7 @@ def start_container(deployment: Deployment) -> str:
     client = _get_client()
 
     device_requests = None
-    if deployment.resources.gpu_indices:
+    if deployment.resources.compute_mode is ComputeMode.GPU and deployment.resources.gpu_indices:
         device_requests = [
             docker.types.DeviceRequest(
                 device_ids=[str(i) for i in deployment.resources.gpu_indices],

@@ -103,14 +103,19 @@ export function ModelConfiguration() {
           <p style={{ fontWeight: 600, marginTop: 16 }}>Risorse</p>
           <p>CPU: {deployment.resources.cpu_cores} core</p>
           <p>RAM: {deployment.resources.ram_gb} GB</p>
-          <p>GPU: {deployment.resources.gpu_indices.join(", ") || "nessuna"}</p>
-          <p>Limite vRAM: {deployment.resources.vram_limit_gb ?? "nessun limite"}</p>
-          <p>
-            CPU offload:{" "}
-            {deployment.resources.offload.enabled
-              ? `abilitato (${deployment.resources.offload.cpu_offload_gb} GB)`
-              : "disabilitato"}
-          </p>
+          <p>Modalità: {deployment.resources.compute_mode === "gpu" ? "GPU" : "CPU Only"}</p>
+          {deployment.resources.compute_mode === "gpu" && (
+            <>
+              <p>GPU: {deployment.resources.gpu_indices.join(", ") || "nessuna"}</p>
+              <p>Limite vRAM: {deployment.resources.vram_limit_gb ?? "nessun limite"}</p>
+              <p>
+                CPU offload:{" "}
+                {deployment.resources.offload.enabled
+                  ? `abilitato (${deployment.resources.offload.cpu_offload_gb} GB)`
+                  : "disabilitato"}
+              </p>
+            </>
+          )}
 
           <p style={{ fontWeight: 600, marginTop: 16 }}>Rete</p>
           <p>

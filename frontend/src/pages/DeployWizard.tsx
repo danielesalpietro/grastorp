@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   api,
+  ComputeMode,
   DeploymentCreateRequest,
   Framework,
   GPUDevice,
@@ -23,6 +24,7 @@ function defaultForm(): DeploymentCreateRequest {
     resources: {
       cpu_cores: 4,
       ram_gb: 16,
+      compute_mode: "gpu",
       gpu_indices: [],
       vram_limit_gb: null,
       offload: { enabled: false, cpu_offload_gb: 0 },
@@ -54,6 +56,16 @@ export function DeployWizard() {
 
   function update<K extends keyof DeploymentCreateRequest>(key: K, value: DeploymentCreateRequest[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function setComputeMode(mode: ComputeMode) {
+    setForm((f) => ({
+      ...f,
+      resources:
+        mode === "cpu"
+          ? { ...f.resources, compute_mode: mode, gpu_indices: [], offload: { enabled: false, cpu_offload_gb: 0 } }
+          : { ...f.resources, compute_mode: mode },
+    }));
   }
 
   function toggleGpu(index: number) {
@@ -164,6 +176,30 @@ export function DeployWizard() {
 
           {step === 2 && (
             <div className="panel">
+              <div className="form-field" style={{ marginBottom: 16 }}>
+                <label>Modalità di calcolo</label>
+                <div className="form-field checkbox">
+                  <input
+                    type="radio"
+                    id="mode-gpu"
+                    name="compute-mode"
+                    checked={form.resources.compute_mode === "gpu"}
+                    onChange={() => setComputeMode("gpu")}
+                  />
+                  <label htmlFor="mode-gpu">GPU</label>
+                </div>
+                <div className="form-field checkbox">
+                  <input
+                    type="radio"
+                    id="mode-cpu"
+                    name="compute-mode"
+                    checked={form.resources.compute_mode === "cpu"}
+                    onChange={() => setComputeMode("cpu")}
+                  />
+                  <label htmlFor="mode-cpu">CPU Only</label>
+                </div>
+              </div>
+
               <div className="form-row">
                 <div className="form-field">
                   <label>CPU (core)</label>
@@ -202,7 +238,12 @@ export function DeployWizard() {
               </div>
 
               <div className="form-field">
-                <label>GPU disponibili</label>
+                <label>
+                  GPU disponibili{" "}
+                  {form.resources.compute_mode === "cpu" && (
+                    <span className="stub-note">disponibile solo in modalità GPU</span>
+                  )}
+                </label>
                 {gpus.length === 0 ? (
                   <span className="stub-note">Nessuna GPU rilevata sull'host (o rilevamento non disponibile)</span>
                 ) : (
@@ -211,6 +252,7 @@ export function DeployWizard() {
                       <input
                         type="checkbox"
                         id={`gpu-${g.index}`}
+                        disabled={form.resources.compute_mode === "cpu"}
                         checked={form.resources.gpu_indices.includes(g.index)}
                         onChange={() => toggleGpu(g.index)}
                       />
@@ -226,6 +268,7 @@ export function DeployWizard() {
                 <input
                   type="checkbox"
                   id="offload-enabled"
+                  disabled={form.resources.compute_mode === "cpu"}
                   checked={form.resources.offload.enabled}
                   onChange={(e) =>
                     update("resources", {
@@ -234,9 +277,14 @@ export function DeployWizard() {
                     })
                   }
                 />
-                <label htmlFor="offload-enabled">Abilita CPU offload</label>
+                <label htmlFor="offload-enabled">
+                  Abilita CPU offload{" "}
+                  {form.resources.compute_mode === "cpu" && (
+                    <span className="stub-note">disponibile solo in modalità GPU</span>
+                  )}
+                </label>
               </div>
-              {form.resources.offload.enabled && (
+              {form.resources.compute_mode === "gpu" && form.resources.offload.enabled && (
                 <div className="form-field" style={{ maxWidth: 240 }}>
                   <label>Quantità di offload (GB)</label>
                   <input
@@ -337,13 +385,22 @@ export function DeployWizard() {
                 <strong>CPU / RAM:</strong> {form.resources.cpu_cores} core / {form.resources.ram_gb} GB
               </p>
               <p>
-                <strong>GPU:</strong>{" "}
-                {form.resources.gpu_indices.length ? form.resources.gpu_indices.join(", ") : "nessuna"}
+                <strong>Modalità:</strong> {form.resources.compute_mode === "gpu" ? "GPU" : "CPU Only"}
               </p>
-              <p>
-                <strong>Offload:</strong>{" "}
-                {form.resources.offload.enabled ? `${form.resources.offload.cpu_offload_gb} GB` : "disabilitato"}
-              </p>
+              {form.resources.compute_mode === "gpu" && (
+                <>
+                  <p>
+                    <strong>GPU:</strong>{" "}
+                    {form.resources.gpu_indices.length ? form.resources.gpu_indices.join(", ") : "nessuna"}
+                  </p>
+                  <p>
+                    <strong>Offload:</strong>{" "}
+                    {form.resources.offload.enabled
+                      ? `${form.resources.offload.cpu_offload_gb} GB`
+                      : "disabilitato"}
+                  </p>
+                </>
+              )}
               <p>
                 <strong>Endpoint:</strong> {form.network.bind_ip}:{form.network.api_port}
               </p>

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas import Deployment, DeploymentCreateRequest, DeploymentState
+from app.schemas import ComputeMode, Deployment, DeploymentCreateRequest, DeploymentState, OffloadConfig
 from app.services import docker_service, hf_service
 from app import store
 
@@ -21,6 +21,12 @@ def list_deployments() -> list[Deployment]:
 def create_deployment(payload: DeploymentCreateRequest) -> Deployment:
     if hf_service.get_model(payload.model_repo_id) is None:
         raise HTTPException(status_code=400, detail="Modello non presente nel catalogo MoE")
+
+    if payload.resources.compute_mode is ComputeMode.CPU:
+        # In CPU Only, GPU e CPU offload non sono applicabili: li azzeriamo
+        # indipendentemente da cosa manda il client.
+        payload.resources.gpu_indices = []
+        payload.resources.offload = OffloadConfig()
 
     deployment = Deployment(
         id=str(uuid.uuid4()),

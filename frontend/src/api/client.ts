@@ -49,9 +49,12 @@ export interface OffloadConfig {
   cpu_offload_gb: number;
 }
 
+export type ComputeMode = "cpu" | "gpu";
+
 export interface ResourceConfig {
   cpu_cores: number;
   ram_gb: number;
+  compute_mode: ComputeMode;
   gpu_indices: number[];
   vram_limit_gb: number | null;
   offload: OffloadConfig;

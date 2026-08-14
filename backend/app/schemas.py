@@ -29,6 +29,11 @@ class DeploymentState(str, Enum):
     ERROR = "error"
 
 
+class ComputeMode(str, Enum):
+    CPU = "cpu"
+    GPU = "gpu"
+
+
 class HFModel(BaseModel):
     """Voce del catalogo modelli Hugging Face disponibili per il deploy."""
 
@@ -89,6 +94,7 @@ class OffloadConfig(BaseModel):
 class ResourceConfig(BaseModel):
     cpu_cores: int = Field(default=4, ge=1)
     ram_gb: int = Field(default=16, ge=1)
+    compute_mode: ComputeMode = ComputeMode.GPU
     gpu_indices: list[int] = Field(default_factory=list)
     vram_limit_gb: float | None = None
     offload: OffloadConfig = Field(default_factory=OffloadConfig)
