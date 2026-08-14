@@ -8,6 +8,16 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONUNBUFFERED=1
+    # Richiede l'NVIDIA Container Toolkit installato sull'host: senza,
+    # `docker compose up` fallisce con "could not select device driver nvidia".
+    # Se l'host non ha GPU NVIDIA, rimuovi questo blocco.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   frontend:
     build: ./frontend

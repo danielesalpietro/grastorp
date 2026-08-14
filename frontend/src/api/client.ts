@@ -14,6 +14,15 @@ export interface GPUDevice {
   name: string;
   vram_total_mb: number;
   vram_used_mb: number;
+  vram_free_mb: number | null;
+  driver_version: string | null;
+  uuid: string | null;
+  pci_bus_id: string | null;
+  temperature_c: number | null;
+  utilization_percent: number | null;
+  power_draw_w: number | null;
+  power_limit_w: number | null;
+  compute_capability: string | null;
 }
 
 export interface NICDevice {

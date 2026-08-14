@@ -41,12 +41,21 @@ class HFModel(BaseModel):
 
 
 class GPUDevice(BaseModel):
-    """GPU rilevata sull'host, esposta per la selezione in fase di deploy."""
+    """GPU NVIDIA rilevata sull'host (via nvidia-smi), esposta per la selezione in fase di deploy."""
 
     index: int
     name: str
     vram_total_mb: int
     vram_used_mb: int = 0
+    vram_free_mb: int | None = None
+    driver_version: str | None = None
+    uuid: str | None = None
+    pci_bus_id: str | None = None
+    temperature_c: int | None = None
+    utilization_percent: int | None = None
+    power_draw_w: float | None = None
+    power_limit_w: float | None = None
+    compute_capability: str | None = None
 
 
 class HostInfo(BaseModel):
