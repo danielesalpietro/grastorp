@@ -21,6 +21,7 @@ passi — utile a chi riprende il lavoro in un secondo momento.
 | Catalogo modelli HF                  | 🚧 statico, non collegato all'API reale |
 | Storage / cache modelli              | 🚧 stub |
 | Rilevamento NIC host                 | 🚧 stub |
+| Test automatici + CI                 | ✅ pytest (backend), vitest+RTL (frontend), GitHub Actions |
 
 ## Decisioni tecniche
 
@@ -48,6 +49,12 @@ passi — utile a chi riprende il lavoro in un secondo momento.
   Storage, Networking, GPU) e pagine con pattern master/detail e tab
   (Summary/Configuration/Monitor/Console) — familiare a chi ha usato
   console di gestione hypervisor.
+- **Test**: niente Docker/GPU/nvidia-smi reali nei test — `docker_service`
+  e `gpu_service` sono testati mockando il client Docker e
+  `subprocess`/`shutil.which`, così la suite gira ovunque (locale e CI)
+  senza dipendenze hardware. Il job `docker-build` in CI fa solo `docker
+  build` delle immagini (non `up`), perché il `docker-compose.yml`
+  richiede una GPU reservation che i runner GitHub-hosted non hanno.
 
 ## Prossimi passi
 
@@ -61,6 +68,15 @@ passi — utile a chi riprende il lavoro in un secondo momento.
 6. Storage/cache dei pesi dei modelli scaricati.
 
 ## Log
+
+### 2026-08-14 — Test automatici e CI
+
+Aggiunta suite di test di non regressione: `pytest` per il backend (API
+deployments/models/system, sanitizzazione CPU/GPU, parsing `nvidia-smi`,
+costruzione comando vLLM) e `vitest`+React Testing Library per il
+frontend (toggle CPU Only/GPU nel wizard, struttura del Navigator).
+Aggiunto workflow GitHub Actions (`.github/workflows/ci.yml`) che esegue
+entrambe le suite più un build delle immagini Docker su ogni push/PR.
 
 ### 2026-08-14 — v0.1.0, primo rilascio
 

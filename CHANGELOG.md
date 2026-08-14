@@ -34,6 +34,12 @@ Primo rilascio: scaffold funzionante di backend e frontend.
   / Console.
 - `docker-compose.yml` per l'esecuzione in sviluppo, con GPU reservation
   per il servizio backend (richiede NVIDIA Container Toolkit sull'host).
+- Suite di test automatici: backend (`pytest`, API + logica di
+  sanitizzazione CPU/GPU + parsing `nvidia-smi`) e frontend (`vitest` +
+  React Testing Library, con test di non regressione sul toggle
+  CPU Only/GPU e sulla struttura del Navigator).
+- Workflow CI (GitHub Actions): test backend, type-check + test + build
+  frontend, build delle immagini Docker su ogni push/PR.
 
 ### Known limitations
 

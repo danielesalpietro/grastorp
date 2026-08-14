@@ -91,6 +91,25 @@ docker compose up --build
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8080 (documentazione interattiva su `/docs`)
 
+## Test
+
+```bash
+# backend
+cd backend
+pip install -r requirements-dev.txt
+pytest
+
+# frontend
+cd frontend
+npm install
+npx tsc -b   # type check
+npm test     # vitest
+npm run build
+```
+
+La CI (GitHub Actions) esegue entrambe le suite più un build delle
+immagini Docker su ogni push e pull request.
+
 ## Contribuire
 
 Il progetto è agli inizi: issue e pull request sono benvenute, in particolare
