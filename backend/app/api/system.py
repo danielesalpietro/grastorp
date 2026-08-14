@@ -1,9 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from app.schemas import Framework, GPUDevice, NICDevice, WebUI
-from app.services import gpu_service
+from app.schemas import Framework, GPUDevice, HostInfo, NICDevice, WebUI
+from app.services import docker_service, gpu_service
 
 router = APIRouter(prefix="/api/system", tags=["system"])
+
+
+@router.get("/host", response_model=HostInfo)
+def get_host_info() -> HostInfo:
+    try:
+        return HostInfo(**docker_service.get_host_info())
+    except docker_service.DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker daemon non raggiungibile: {exc}") from exc
 
 
 @router.get("/gpus", response_model=list[GPUDevice])

@@ -49,6 +49,22 @@ class GPUDevice(BaseModel):
     vram_used_mb: int = 0
 
 
+class HostInfo(BaseModel):
+    """Info sul docker daemon e sull'host reale che lo esegue."""
+
+    hostname: str | None
+    operating_system: str | None
+    os_type: str | None
+    kernel_version: str | None
+    architecture: str | None
+    cpu_count: int | None
+    mem_total_bytes: int | None
+    docker_version: str | None
+    containers_total: int | None
+    containers_running: int | None
+    images_count: int | None
+
+
 class NICDevice(BaseModel):
     """Interfaccia di rete disponibile sull'host, selezionabile come in ESXi."""
 

@@ -96,3 +96,30 @@ def docker_available() -> bool:
         return True
     except DockerException:
         return False
+
+
+def get_host_info() -> dict:
+    """Info sul docker daemon e sull'host che lo esegue.
+
+    Interroga direttamente il docker daemon (via il socket montato), che gira
+    sull'host reale: i valori di CPU/RAM/hostname/kernel riportati sono quindi
+    quelli dell'host, non quelli (limitati) del container del backend.
+    """
+
+    client = _get_client()
+    info = client.info()
+    version = client.version()
+
+    return {
+        "hostname": info.get("Name"),
+        "operating_system": info.get("OperatingSystem"),
+        "os_type": info.get("OSType"),
+        "kernel_version": info.get("KernelVersion"),
+        "architecture": info.get("Architecture"),
+        "cpu_count": info.get("NCPU"),
+        "mem_total_bytes": info.get("MemTotal"),
+        "docker_version": version.get("Version"),
+        "containers_total": info.get("Containers"),
+        "containers_running": info.get("ContainersRunning"),
+        "images_count": info.get("Images"),
+    }

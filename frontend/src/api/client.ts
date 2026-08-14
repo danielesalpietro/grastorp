@@ -21,6 +21,20 @@ export interface NICDevice {
   address: string | null;
 }
 
+export interface HostInfo {
+  hostname: string | null;
+  operating_system: string | null;
+  os_type: string | null;
+  kernel_version: string | null;
+  architecture: string | null;
+  cpu_count: number | null;
+  mem_total_bytes: number | null;
+  docker_version: string | null;
+  containers_total: number | null;
+  containers_running: number | null;
+  images_count: number | null;
+}
+
 export interface OffloadConfig {
   enabled: boolean;
   cpu_offload_gb: number;
@@ -90,6 +104,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; docker: boolean }>("/health"),
   listModels: () => request<HFModel[]>("/models"),
+  getHostInfo: () => request<HostInfo>("/system/host"),
   listGpus: () => request<GPUDevice[]>("/system/gpus"),
   listNics: () => request<NICDevice[]>("/system/nics"),
   listFrameworks: () => request<OptionEntry[]>("/system/frameworks"),
