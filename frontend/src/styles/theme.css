@@ -107,6 +107,18 @@ body {
   font-weight: 600;
 }
 
+.sidebar__group-header {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sidebar__link--sub {
+  padding-left: 32px;
+  font-size: 12px;
+}
+
 .main-area {
   flex: 1;
   display: flex;
