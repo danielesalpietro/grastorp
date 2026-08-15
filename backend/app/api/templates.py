@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas import Template, TemplateCreateRequest, TemplateFromHFRequest, TemplateType
 from app import template_store
-from app.services import hf_metadata_service
+from app.services import hf_metadata_service, model_library_service
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -81,6 +81,55 @@ def sync_template_from_hf(template_id: str) -> Template:
     updated = existing.model_copy(update={"spec": spec})
     template_store.save_template(updated)
     return updated
+
+
+def _get_model_template_or_404(template_id: str) -> Template:
+    template = template_store.get_template(template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Template non trovato")
+    if template.type != TemplateType.MODEL:
+        raise HTTPException(status_code=400, detail="La Library è disponibile solo per i template modello")
+    return template
+
+
+@router.post("/{template_id}/library/download", response_model=Template)
+def download_to_library(template_id: str) -> Template:
+    """Avvia (o riprende, se già in corso) il download dei pesi nel volume condiviso."""
+    template = _get_model_template_or_404(template_id)
+    try:
+        return model_library_service.start_download(template)
+    except model_library_service.ModelLibraryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/{template_id}/library", response_model=Template)
+def get_library_status(template_id: str) -> Template:
+    """Ritorna lo stato aggiornato del download (riallineandolo con il container reale se in corso)."""
+    template = _get_model_template_or_404(template_id)
+    try:
+        return model_library_service.get_status(template)
+    except model_library_service.ModelLibraryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/{template_id}/library/verify", response_model=Template)
+def verify_library(template_id: str) -> Template:
+    """Verifica che i file nel volume corrispondano (nome e size) a quelli attesi da Hugging Face."""
+    template = _get_model_template_or_404(template_id)
+    try:
+        return model_library_service.verify_library(template)
+    except model_library_service.ModelLibraryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.delete("/{template_id}/library", response_model=Template)
+def delete_library(template_id: str) -> Template:
+    """Rimuove il volume dalla Library e resetta lo stato del template."""
+    template = _get_model_template_or_404(template_id)
+    try:
+        return model_library_service.delete_library(template)
+    except model_library_service.ModelLibraryError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.put("/{template_id}", response_model=Template)

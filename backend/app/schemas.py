@@ -5,10 +5,6 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class ModelArchitecture(str, Enum):
-    MIXTURE_OF_EXPERTS = "moe"
-
-
 class Framework(str, Enum):
     VLLM = "vllm"
     # stub per estensioni future
@@ -32,17 +28,6 @@ class DeploymentState(str, Enum):
 class ComputeMode(str, Enum):
     CPU = "cpu"
     GPU = "gpu"
-
-
-class HFModel(BaseModel):
-    """Voce del catalogo modelli Hugging Face disponibili per il deploy."""
-
-    repo_id: str
-    display_name: str
-    architecture: ModelArchitecture
-    num_experts: int | None = None
-    params_billion: float | None = None
-    description: str = ""
 
 
 class GPUDevice(BaseModel):
@@ -129,12 +114,22 @@ class Deployment(BaseModel):
     network: NetworkConfig
     state: DeploymentState
     container_id: str | None = None
+    library_volume: str | None = None
     created_at: str
 
 
 class TemplateType(str, Enum):
     MODEL = "model"
     DOCKER_REGISTRY = "docker_registry"
+
+
+class LibraryStatus(str, Enum):
+    """Stato del download dei pesi del modello nella Library condivisa (volume Docker)."""
+
+    NOT_DOWNLOADED = "not_downloaded"
+    DOWNLOADING = "downloading"
+    READY = "ready"
+    ERROR = "error"
 
 
 class ModelTemplateSpec(BaseModel):
@@ -152,6 +147,14 @@ class ModelTemplateSpec(BaseModel):
     num_shards: int | None = None
     context_length: int | None = None
     quantization: str | None = None
+
+    # Library: tracciano se/dove i pesi sono già stati scaricati in un volume
+    # Docker condiviso, per evitare di scaricarli una volta per ogni deployment.
+    volume_name: str | None = None
+    library_status: LibraryStatus = LibraryStatus.NOT_DOWNLOADED
+    library_progress_percent: float | None = None
+    library_error: str | None = None
+    downloaded_at: str | None = None
 
 
 class DockerRegistryTemplateSpec(BaseModel):

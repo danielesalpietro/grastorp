@@ -69,6 +69,7 @@ export interface Deployment {
   network: NetworkConfig;
   state: DeploymentState;
   container_id: string | null;
+  library_volume: string | null;
   created_at: string;
 }
 
@@ -89,6 +90,8 @@ export interface OptionEntry {
 
 export type TemplateType = "model" | "docker_registry";
 
+export type LibraryStatus = "not_downloaded" | "downloading" | "ready" | "error";
+
 export interface ModelTemplateSpec {
   repo_id: string;
   architecture: string;
@@ -100,6 +103,11 @@ export interface ModelTemplateSpec {
   num_shards: number | null;
   context_length: number | null;
   quantization: string | null;
+  volume_name: string | null;
+  library_status: LibraryStatus;
+  library_progress_percent: number | null;
+  library_error: string | null;
+  downloaded_at: string | null;
 }
 
 export interface DockerRegistryTemplateSpec {
@@ -181,6 +189,10 @@ export const api = {
   createTemplateFromHF: (payload: TemplateFromHFRequest) =>
     request<Template>("/templates/from-hf", { method: "POST", body: JSON.stringify(payload) }),
   syncTemplateFromHF: (id: string) => request<Template>(`/templates/${id}/sync-hf`, { method: "POST" }),
+  downloadToLibrary: (id: string) => request<Template>(`/templates/${id}/library/download`, { method: "POST" }),
+  getLibraryStatus: (id: string) => request<Template>(`/templates/${id}/library`),
+  verifyLibrary: (id: string) => request<Template>(`/templates/${id}/library/verify`, { method: "POST" }),
+  deleteLibrary: (id: string) => request<Template>(`/templates/${id}/library`, { method: "DELETE" }),
   updateTemplate: (id: string, payload: TemplateCreateRequest) =>
     request<Template>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteTemplate: (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" }),

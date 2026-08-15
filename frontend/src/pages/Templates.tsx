@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api,
   DockerRegistryTemplateSpec,
+  LibraryStatus,
   ModelTemplateSpec,
   Template,
   TemplateCreateRequest,
@@ -12,6 +13,20 @@ import { useTasks } from "../context/TasksContext";
 const TYPE_LABELS: Record<TemplateType, string> = {
   model: "Modello",
   docker_registry: "Registry Docker",
+};
+
+const LIBRARY_BADGE: Record<LibraryStatus, string> = {
+  not_downloaded: "stopped",
+  downloading: "creating",
+  ready: "running",
+  error: "error",
+};
+
+const LIBRARY_LABEL: Record<LibraryStatus, string> = {
+  not_downloaded: "non in Library",
+  downloading: "download in corso",
+  ready: "in Library",
+  error: "errore Library",
 };
 
 function defaultModelSpec(): ModelTemplateSpec {
@@ -26,6 +41,11 @@ function defaultModelSpec(): ModelTemplateSpec {
     num_shards: null,
     context_length: null,
     quantization: null,
+    volume_name: null,
+    library_status: "not_downloaded",
+    library_progress_percent: null,
+    library_error: null,
+    downloaded_at: null,
   };
 }
 
@@ -67,6 +87,7 @@ export function Templates() {
   const [hfSubmitting, setHfSubmitting] = useState(false);
   const [hfError, setHfError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [libraryActionId, setLibraryActionId] = useState<string | null>(null);
   const { pushTask } = useTasks();
 
   const reload = useCallback(() => {
@@ -78,6 +99,20 @@ export function Templates() {
   }, [filter]);
 
   useEffect(reload, [reload]);
+
+  useEffect(() => {
+    const downloading = templates.filter(
+      (t) => t.type === "model" && (t.spec as ModelTemplateSpec).library_status === "downloading"
+    );
+    if (downloading.length === 0) return;
+
+    const interval = setInterval(() => {
+      Promise.all(downloading.map((t) => api.getLibraryStatus(t.id))).then((updated) => {
+        setTemplates((prev) => prev.map((t) => updated.find((u) => u.id === t.id) ?? t));
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [templates]);
 
   function setType(type: TemplateType) {
     setForm({ ...defaultForm(), type, spec: type === "model" ? defaultModelSpec() : defaultDockerSpec() });
@@ -139,6 +174,46 @@ export function Templates() {
       setSyncingId(null);
     }
     reload();
+  }
+
+  async function handleDownloadToLibrary(t: Template) {
+    setLibraryActionId(t.id);
+    try {
+      const updated = await api.downloadToLibrary(t.id);
+      setTemplates((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      pushTask(`Download di "${t.name}" avviato nella Library`, "success");
+    } catch (e) {
+      pushTask(`Download fallito: ${(e as Error).message}`, "error");
+    } finally {
+      setLibraryActionId(null);
+    }
+  }
+
+  async function handleVerifyLibrary(t: Template) {
+    setLibraryActionId(t.id);
+    try {
+      const updated = await api.verifyLibrary(t.id);
+      setTemplates((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      pushTask(`Verifica integrità di "${t.name}" completata`, "success");
+    } catch (e) {
+      pushTask(`Verifica fallita: ${(e as Error).message}`, "error");
+    } finally {
+      setLibraryActionId(null);
+    }
+  }
+
+  async function handleRemoveFromLibrary(t: Template) {
+    if (!confirm(`Rimuovere "${t.name}" dalla Library? I pesi già scaricati verranno eliminati.`)) return;
+    setLibraryActionId(t.id);
+    try {
+      const updated = await api.deleteLibrary(t.id);
+      setTemplates((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      pushTask(`"${t.name}" rimosso dalla Library`, "success");
+    } catch (e) {
+      pushTask(`Rimozione fallita: ${(e as Error).message}`, "error");
+    } finally {
+      setLibraryActionId(null);
+    }
   }
 
   async function handleCreateFromHF() {
@@ -440,9 +515,21 @@ export function Templates() {
               {t.name} <span className="badge">{TYPE_LABELS[t.type]}</span>{" "}
               <span className={`badge badge--${t.enabled ? "running" : "stopped"}`}>
                 {t.enabled ? "abilitato" : "disabilitato"}
-              </span>
+              </span>{" "}
+              {t.type === "model" && (
+                <span className={`badge badge--${LIBRARY_BADGE[(t.spec as ModelTemplateSpec).library_status]}`}>
+                  {LIBRARY_LABEL[(t.spec as ModelTemplateSpec).library_status]}
+                  {(t.spec as ModelTemplateSpec).library_status === "downloading" &&
+                  (t.spec as ModelTemplateSpec).library_progress_percent != null
+                    ? ` ${(t.spec as ModelTemplateSpec).library_progress_percent}%`
+                    : ""}
+                </span>
+              )}
             </p>
             {t.description && <p className="page-subtitle">{t.description}</p>}
+            {t.type === "model" && (t.spec as ModelTemplateSpec).library_error && (
+              <p className="stub-note">{(t.spec as ModelTemplateSpec).library_error}</p>
+            )}
 
             {t.type === "model" ? (
               <>
@@ -544,6 +631,43 @@ export function Templates() {
                   {syncingId === t.id ? "Sync in corso..." : "Sync da HF"}
                 </button>
               )}
+              {t.type === "model" &&
+                (() => {
+                  const libraryStatus = (t.spec as ModelTemplateSpec).library_status;
+                  const busy = libraryActionId === t.id;
+                  if (libraryStatus === "not_downloaded") {
+                    return (
+                      <button className="btn" disabled={busy} onClick={() => handleDownloadToLibrary(t)}>
+                        {busy ? "Avvio..." : "Scarica in Library"}
+                      </button>
+                    );
+                  }
+                  if (libraryStatus === "error") {
+                    return (
+                      <>
+                        <button className="btn" disabled={busy} onClick={() => handleDownloadToLibrary(t)}>
+                          {busy ? "Avvio..." : "Riprova download"}
+                        </button>
+                        <button className="btn" disabled={busy} onClick={() => handleRemoveFromLibrary(t)}>
+                          Rimuovi dalla Library
+                        </button>
+                      </>
+                    );
+                  }
+                  if (libraryStatus === "ready") {
+                    return (
+                      <>
+                        <button className="btn" disabled={busy} onClick={() => handleVerifyLibrary(t)}>
+                          {busy ? "Verifica..." : "Verifica integrità"}
+                        </button>
+                        <button className="btn" disabled={busy} onClick={() => handleRemoveFromLibrary(t)}>
+                          Rimuovi dalla Library
+                        </button>
+                      </>
+                    );
+                  }
+                  return null;
+                })()}
               <button className="btn btn--danger" onClick={() => handleDelete(t)}>
                 Elimina
               </button>

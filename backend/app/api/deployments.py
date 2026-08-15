@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas import ComputeMode, Deployment, DeploymentCreateRequest, DeploymentState, OffloadConfig
+from app.schemas import ComputeMode, Deployment, DeploymentCreateRequest, DeploymentState, LibraryStatus, OffloadConfig
 from app.services import docker_service
 from app import store, template_store
 
@@ -19,8 +19,17 @@ def list_deployments() -> list[Deployment]:
 
 @router.post("", response_model=Deployment, status_code=201)
 def create_deployment(payload: DeploymentCreateRequest) -> Deployment:
-    if template_store.get_enabled_model_template_by_repo_id(payload.model_repo_id) is None:
+    template = template_store.get_enabled_model_template_by_repo_id(payload.model_repo_id)
+    if template is None:
         raise HTTPException(status_code=400, detail="Modello non presente tra i template abilitati")
+
+    library_status = template.spec.library_status
+    if library_status is LibraryStatus.DOWNLOADING:
+        raise HTTPException(status_code=409, detail="Il modello è ancora in fase di download nella Library")
+    if library_status is LibraryStatus.ERROR:
+        raise HTTPException(
+            status_code=409, detail="Il download del modello nella Library ha un errore: verificalo nella pagina Templates"
+        )
 
     if payload.resources.compute_mode is ComputeMode.CPU:
         # In CPU Only, GPU e CPU offload non sono applicabili: li azzeriamo
@@ -37,6 +46,7 @@ def create_deployment(payload: DeploymentCreateRequest) -> Deployment:
         resources=payload.resources,
         network=payload.network,
         state=DeploymentState.STOPPED,
+        library_volume=template.spec.volume_name if library_status is LibraryStatus.READY else None,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     store.save_deployment(deployment)

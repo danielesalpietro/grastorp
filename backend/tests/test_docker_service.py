@@ -9,7 +9,7 @@ from app.schemas import (
 from app.services import docker_service
 
 
-def _deployment(**resource_overrides) -> Deployment:
+def _deployment(library_volume: str | None = None, **resource_overrides) -> Deployment:
     return Deployment(
         id="dep-1",
         name="test",
@@ -19,6 +19,7 @@ def _deployment(**resource_overrides) -> Deployment:
         resources=ResourceConfig(**resource_overrides),
         network=NetworkConfig(api_port=8000),
         state=DeploymentState.STOPPED,
+        library_volume=library_volume,
         created_at="2026-01-01T00:00:00Z",
     )
 
@@ -97,3 +98,24 @@ def test_start_container_cpu_mode_requests_no_gpu_devices(monkeypatch):
     docker_service.start_container(deployment)
 
     assert fake_client.containers.run_kwargs["device_requests"] is None
+
+
+def test_start_container_without_library_volume_skips_mount(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(docker_service, "_get_client", lambda: fake_client)
+
+    docker_service.start_container(_deployment())
+
+    assert fake_client.containers.run_kwargs["volumes"] is None
+    assert "HF_HOME" not in fake_client.containers.run_kwargs["environment"]
+
+
+def test_start_container_with_library_volume_mounts_read_only(monkeypatch):
+    fake_client = _FakeClient()
+    monkeypatch.setattr(docker_service, "_get_client", lambda: fake_client)
+
+    docker_service.start_container(_deployment(library_volume="grastorp-model-mixtral"))
+
+    volumes = fake_client.containers.run_kwargs["volumes"]
+    assert volumes == {"grastorp-model-mixtral": {"bind": "/root/.cache/huggingface", "mode": "ro"}}
+    assert fake_client.containers.run_kwargs["environment"]["HF_HOME"] == "/root/.cache/huggingface"

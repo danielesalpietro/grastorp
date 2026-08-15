@@ -40,17 +40,26 @@ def _first_int_field(config: dict, *names: str) -> int | None:
     return None
 
 
-def _shard_info(repo_id: str, total_params: float | int | None) -> tuple[int | None, float | None]:
-    """Conta i file .safetensors del repo per stimare numero e dimensione degli shard."""
+def list_safetensor_files(repo_id: str) -> list[dict]:
+    """Elenca i file .safetensors del repo (path e size in byte), per sharding e verifica integrità.
+
+    Ritorna [] se il repo non ha file .safetensors o se l'elenco non è ottenibile:
+    è un dato best-effort, chi lo consuma deve gestire la lista vuota.
+    """
     try:
         files = _get_json(f"{_HF_API_BASE}/{repo_id}/tree/main")
     except HFMetadataError:
-        return None, None
+        return []
 
     if not isinstance(files, list):
-        return None, None
+        return []
 
-    shard_files = [f for f in files if isinstance(f, dict) and str(f.get("path", "")).endswith(".safetensors")]
+    return [f for f in files if isinstance(f, dict) and str(f.get("path", "")).endswith(".safetensors")]
+
+
+def _shard_info(repo_id: str, total_params: float | int | None) -> tuple[int | None, float | None]:
+    """Conta i file .safetensors del repo per stimare numero e dimensione degli shard."""
+    shard_files = list_safetensor_files(repo_id)
     if not shard_files:
         return None, None
 

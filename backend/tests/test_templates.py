@@ -1,5 +1,5 @@
-from app.schemas import ModelTemplateSpec
-from app.services import hf_metadata_service
+from app.schemas import LibraryStatus, ModelTemplateSpec, Template
+from app.services import hf_metadata_service, model_library_service
 
 MODEL_PAYLOAD = {
     "type": "model",
@@ -214,3 +214,59 @@ def test_sync_template_from_hf_rejects_docker_template(client):
 
     resp = client.post(f"/api/templates/{created['id']}/sync-hf")
     assert resp.status_code == 400
+
+
+def _mark_downloading(template: Template) -> Template:
+    return template.model_copy(update={"spec": template.spec.model_copy(update={"library_status": LibraryStatus.DOWNLOADING})})
+
+
+def test_download_to_library(client, monkeypatch):
+    created = client.post("/api/templates", json=MODEL_PAYLOAD).json()
+    monkeypatch.setattr(model_library_service, "start_download", lambda t: _mark_downloading(t))
+
+    resp = client.post(f"/api/templates/{created['id']}/library/download")
+    assert resp.status_code == 200
+    assert resp.json()["spec"]["library_status"] == "downloading"
+
+
+def test_download_to_library_rejects_docker_template(client):
+    created = client.post("/api/templates", json=DOCKER_PAYLOAD).json()
+
+    resp = client.post(f"/api/templates/{created['id']}/library/download")
+    assert resp.status_code == 400
+
+
+def test_download_to_library_propagates_error(client, monkeypatch):
+    created = client.post("/api/templates", json=MODEL_PAYLOAD).json()
+
+    def _raise(t):
+        raise model_library_service.ModelLibraryError("Docker non raggiungibile")
+
+    monkeypatch.setattr(model_library_service, "start_download", _raise)
+
+    resp = client.post(f"/api/templates/{created['id']}/library/download")
+    assert resp.status_code == 502
+
+
+def test_get_library_status(client, monkeypatch):
+    created = client.post("/api/templates", json=MODEL_PAYLOAD).json()
+    monkeypatch.setattr(model_library_service, "get_status", lambda t: t)
+
+    resp = client.get(f"/api/templates/{created['id']}/library")
+    assert resp.status_code == 200
+
+
+def test_verify_library_endpoint(client, monkeypatch):
+    created = client.post("/api/templates", json=MODEL_PAYLOAD).json()
+    monkeypatch.setattr(model_library_service, "verify_library", lambda t: t)
+
+    resp = client.post(f"/api/templates/{created['id']}/library/verify")
+    assert resp.status_code == 200
+
+
+def test_delete_library_endpoint(client, monkeypatch):
+    created = client.post("/api/templates", json=MODEL_PAYLOAD).json()
+    monkeypatch.setattr(model_library_service, "delete_library", lambda t: t)
+
+    resp = client.delete(f"/api/templates/{created['id']}/library")
+    assert resp.status_code == 200
