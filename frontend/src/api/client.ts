@@ -98,6 +98,48 @@ export interface OptionEntry {
   available: boolean;
 }
 
+export type TemplateType = "model" | "docker_registry";
+
+export interface ModelTemplateSpec {
+  architecture: string;
+  num_experts: number | null;
+  num_experts_active: number | null;
+  num_layers: number | null;
+  params_billion: number | null;
+  shard_size_gb: number | null;
+  num_shards: number | null;
+  context_length: number | null;
+  quantization: string | null;
+}
+
+export interface DockerRegistryTemplateSpec {
+  registry: string;
+  image: string;
+  tag: string;
+  size_gb: number | null;
+  ram_required_mb: number | null;
+  gpu_required: boolean;
+  gpu_compatible: string[];
+  min_vram_mb: number | null;
+  cuda_version: string | null;
+}
+
+export interface Template {
+  id: string;
+  type: TemplateType;
+  name: string;
+  description: string;
+  spec: ModelTemplateSpec | DockerRegistryTemplateSpec;
+  created_at: string;
+}
+
+export interface TemplateCreateRequest {
+  type: TemplateType;
+  name: string;
+  description: string;
+  spec: ModelTemplateSpec | DockerRegistryTemplateSpec;
+}
+
 const BASE = "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -128,4 +170,11 @@ export const api = {
   deleteDeployment: (id: string) => request<void>(`/deployments/${id}`, { method: "DELETE" }),
   startDeployment: (id: string) => request<Deployment>(`/deployments/${id}/start`, { method: "POST" }),
   stopDeployment: (id: string) => request<Deployment>(`/deployments/${id}/stop`, { method: "POST" }),
+  listTemplates: (type?: TemplateType) => request<Template[]>(`/templates${type ? `?type=${type}` : ""}`),
+  getTemplate: (id: string) => request<Template>(`/templates/${id}`),
+  createTemplate: (payload: TemplateCreateRequest) =>
+    request<Template>("/templates", { method: "POST", body: JSON.stringify(payload) }),
+  updateTemplate: (id: string, payload: TemplateCreateRequest) =>
+    request<Template>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteTemplate: (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" }),
 };

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ModelArchitecture(str, Enum):
@@ -130,3 +130,66 @@ class Deployment(BaseModel):
     state: DeploymentState
     container_id: str | None = None
     created_at: str
+
+
+class TemplateType(str, Enum):
+    MODEL = "model"
+    DOCKER_REGISTRY = "docker_registry"
+
+
+class ModelTemplateSpec(BaseModel):
+    """Caratteristiche tecniche di un modello (MoE o dense)."""
+
+    architecture: str
+    num_experts: int | None = None
+    num_experts_active: int | None = None
+    num_layers: int | None = None
+    params_billion: float | None = None
+    shard_size_gb: float | None = None
+    num_shards: int | None = None
+    context_length: int | None = None
+    quantization: str | None = None
+
+
+class DockerRegistryTemplateSpec(BaseModel):
+    """Caratteristiche tecniche di un container pronto per il deploy, scaricabile da un registry."""
+
+    registry: str
+    image: str
+    tag: str = "latest"
+    size_gb: float | None = None
+    ram_required_mb: int | None = None
+    gpu_required: bool = False
+    gpu_compatible: list[str] = Field(default_factory=list)
+    min_vram_mb: int | None = None
+    cuda_version: str | None = None
+
+
+class TemplateCreateRequest(BaseModel):
+    type: TemplateType
+    name: str
+    description: str = ""
+    spec: ModelTemplateSpec | DockerRegistryTemplateSpec
+
+    @model_validator(mode="after")
+    def _spec_matches_type(self) -> "TemplateCreateRequest":
+        expected = ModelTemplateSpec if self.type is TemplateType.MODEL else DockerRegistryTemplateSpec
+        if not isinstance(self.spec, expected):
+            raise ValueError(f"spec non compatibile con type={self.type.value}")
+        return self
+
+
+class Template(BaseModel):
+    id: str
+    type: TemplateType
+    name: str
+    description: str = ""
+    spec: ModelTemplateSpec | DockerRegistryTemplateSpec
+    created_at: str
+
+    @model_validator(mode="after")
+    def _spec_matches_type(self) -> "Template":
+        expected = ModelTemplateSpec if self.type is TemplateType.MODEL else DockerRegistryTemplateSpec
+        if not isinstance(self.spec, expected):
+            raise ValueError(f"spec non compatibile con type={self.type.value}")
+        return self

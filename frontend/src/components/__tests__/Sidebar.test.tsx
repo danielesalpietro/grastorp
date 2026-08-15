@@ -18,5 +18,6 @@ describe("Sidebar", () => {
     expect(screen.getByRole("link", { name: "Storage" })).toHaveAttribute("href", "/storage");
     expect(screen.getByRole("link", { name: "Networking" })).toHaveAttribute("href", "/networking");
     expect(screen.getByRole("link", { name: "GPU" })).toHaveAttribute("href", "/gpu");
+    expect(screen.getByRole("link", { name: "Templates" })).toHaveAttribute("href", "/templates");
   });
 });
