@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from app.schemas import ComputeMode, Deployment, DeploymentCreateRequest, DeploymentState, OffloadConfig
-from app.services import docker_service, hf_service
-from app import store
+from app.services import docker_service
+from app import store, template_store
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 
@@ -19,8 +19,8 @@ def list_deployments() -> list[Deployment]:
 
 @router.post("", response_model=Deployment, status_code=201)
 def create_deployment(payload: DeploymentCreateRequest) -> Deployment:
-    if hf_service.get_model(payload.model_repo_id) is None:
-        raise HTTPException(status_code=400, detail="Modello non presente nel catalogo MoE")
+    if template_store.get_enabled_model_template_by_repo_id(payload.model_repo_id) is None:
+        raise HTTPException(status_code=400, detail="Modello non presente tra i template abilitati")
 
     if payload.resources.compute_mode is ComputeMode.CPU:
         # In CPU Only, GPU e CPU offload non sono applicabili: li azzeriamo

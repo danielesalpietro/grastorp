@@ -16,6 +16,7 @@ const TYPE_LABELS: Record<TemplateType, string> = {
 
 function defaultModelSpec(): ModelTemplateSpec {
   return {
+    repo_id: "",
     architecture: "",
     num_experts: null,
     num_experts_active: null,
@@ -43,7 +44,11 @@ function defaultDockerSpec(): DockerRegistryTemplateSpec {
 }
 
 function defaultForm(): TemplateCreateRequest {
-  return { type: "model", name: "", description: "", spec: defaultModelSpec() };
+  return { type: "model", name: "", description: "", enabled: true, spec: defaultModelSpec() };
+}
+
+function toCreateRequest(t: Template): TemplateCreateRequest {
+  return { type: t.type, name: t.name, description: t.description, enabled: t.enabled, spec: t.spec };
 }
 
 function numOrNull(value: string): number | null {
@@ -58,6 +63,10 @@ export function Templates() {
   const [form, setForm] = useState<TemplateCreateRequest>(defaultForm());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hfRepoId, setHfRepoId] = useState("");
+  const [hfSubmitting, setHfSubmitting] = useState(false);
+  const [hfError, setHfError] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   const { pushTask } = useTasks();
 
   const reload = useCallback(() => {
@@ -109,6 +118,44 @@ export function Templates() {
     reload();
   }
 
+  async function handleToggleEnabled(t: Template) {
+    try {
+      await api.updateTemplate(t.id, { ...toCreateRequest(t), enabled: !t.enabled });
+      pushTask(`Template "${t.name}" ${t.enabled ? "disabilitato" : "abilitato"}`, "success");
+    } catch (e) {
+      pushTask(`Operazione fallita: ${(e as Error).message}`, "error");
+    }
+    reload();
+  }
+
+  async function handleSyncHF(t: Template) {
+    setSyncingId(t.id);
+    try {
+      await api.syncTemplateFromHF(t.id);
+      pushTask(`Template "${t.name}" sincronizzato da Hugging Face`, "success");
+    } catch (e) {
+      pushTask(`Sync da HF fallito: ${(e as Error).message}`, "error");
+    } finally {
+      setSyncingId(null);
+    }
+    reload();
+  }
+
+  async function handleCreateFromHF() {
+    setHfSubmitting(true);
+    setHfError(null);
+    try {
+      await api.createTemplateFromHF({ repo_id: hfRepoId });
+      pushTask(`Template creato da Hugging Face (${hfRepoId})`, "success");
+      setHfRepoId("");
+      reload();
+    } catch (e) {
+      setHfError((e as Error).message);
+    } finally {
+      setHfSubmitting(false);
+    }
+  }
+
   return (
     <div>
       <h1 className="page-title">Templates</h1>
@@ -132,6 +179,32 @@ export function Templates() {
         <button className="btn btn--primary" onClick={() => setShowForm((s) => !s)} style={{ marginLeft: "auto" }}>
           {showForm ? "Annulla" : "+ New Template"}
         </button>
+      </div>
+
+      <div className="panel">
+        <p style={{ fontWeight: 600, fontSize: 14 }}>Crea template modello da Hugging Face</p>
+        <p className="page-subtitle">
+          Inserisci il repo_id: le caratteristiche tecniche (esperti, layer, parametri, shard...) vengono lette
+          direttamente da Hugging Face Hub.
+        </p>
+        <div className="form-row">
+          <div className="form-field">
+            <label htmlFor="hf-repo-id">Repo Hugging Face</label>
+            <input
+              id="hf-repo-id"
+              type="text"
+              placeholder="mistralai/Mixtral-8x7B-Instruct-v0.1"
+              value={hfRepoId}
+              onChange={(e) => setHfRepoId(e.target.value)}
+            />
+          </div>
+        </div>
+        {hfError && <div className="empty-state">{hfError}</div>}
+        <div className="toolbar" style={{ marginTop: 8 }}>
+          <button className="btn btn--primary" disabled={hfSubmitting || !hfRepoId} onClick={handleCreateFromHF}>
+            Crea da Hugging Face
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -163,11 +236,30 @@ export function Templates() {
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               />
             </div>
+            <div className="form-field checkbox">
+              <input
+                id="tpl-enabled"
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
+              />
+              <label htmlFor="tpl-enabled">
+                Abilitato <span className="stub-note">visibile nel wizard di deploy se abilitato</span>
+              </label>
+            </div>
           </div>
 
           {form.type === "model" ? (
             <>
               <div className="form-row">
+                <div className="form-field">
+                  <label>Repo Hugging Face</label>
+                  <input
+                    type="text"
+                    value={(form.spec as ModelTemplateSpec).repo_id}
+                    onChange={(e) => updateModelSpec({ repo_id: e.target.value })}
+                  />
+                </div>
                 <div className="form-field">
                   <label>Architettura</label>
                   <input
@@ -345,13 +437,20 @@ export function Templates() {
         templates.map((t) => (
           <div key={t.id} className="panel">
             <p style={{ fontWeight: 600, fontSize: 14 }}>
-              {t.name} <span className="badge">{TYPE_LABELS[t.type]}</span>
+              {t.name} <span className="badge">{TYPE_LABELS[t.type]}</span>{" "}
+              <span className={`badge badge--${t.enabled ? "running" : "stopped"}`}>
+                {t.enabled ? "abilitato" : "disabilitato"}
+              </span>
             </p>
             {t.description && <p className="page-subtitle">{t.description}</p>}
 
             {t.type === "model" ? (
               <>
                 <div className="form-row">
+                  <div className="form-field">
+                    <label>Repo Hugging Face</label>
+                    <div>{(t.spec as ModelTemplateSpec).repo_id}</div>
+                  </div>
                   <div className="form-field">
                     <label>Architettura</label>
                     <div>{(t.spec as ModelTemplateSpec).architecture}</div>
@@ -437,6 +536,14 @@ export function Templates() {
             )}
 
             <div className="toolbar" style={{ marginTop: 8 }}>
+              <button className="btn" onClick={() => handleToggleEnabled(t)}>
+                {t.enabled ? "Disabilita" : "Abilita"}
+              </button>
+              {t.type === "model" && (
+                <button className="btn" disabled={syncingId === t.id} onClick={() => handleSyncHF(t)}>
+                  {syncingId === t.id ? "Sync in corso..." : "Sync da HF"}
+                </button>
+              )}
               <button className="btn btn--danger" onClick={() => handleDelete(t)}>
                 Elimina
               </button>

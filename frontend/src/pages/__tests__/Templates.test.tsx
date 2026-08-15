@@ -8,7 +8,9 @@ const MODEL_TEMPLATE = {
   type: "model",
   name: "Mixtral 8x22B",
   description: "MoE su larga scala",
+  enabled: true,
   spec: {
+    repo_id: "mistralai/Mixtral-8x22B-Instruct-v0.1",
     architecture: "mixtral",
     num_experts: 8,
     num_experts_active: 2,
@@ -25,12 +27,18 @@ const MODEL_TEMPLATE = {
 const listTemplates = vi.fn().mockResolvedValue([MODEL_TEMPLATE]);
 const createTemplate = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
 const deleteTemplate = vi.fn().mockResolvedValue(undefined);
+const updateTemplate = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
+const createTemplateFromHF = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
+const syncTemplateFromHF = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
 
 vi.mock("../../api/client", () => ({
   api: {
     listTemplates: (...args: unknown[]) => listTemplates(...args),
     createTemplate: (...args: unknown[]) => createTemplate(...args),
     deleteTemplate: (...args: unknown[]) => deleteTemplate(...args),
+    updateTemplate: (...args: unknown[]) => updateTemplate(...args),
+    createTemplateFromHF: (...args: unknown[]) => createTemplateFromHF(...args),
+    syncTemplateFromHF: (...args: unknown[]) => syncTemplateFromHF(...args),
   },
 }));
 
@@ -59,5 +67,39 @@ describe("Templates", () => {
     fireEvent.click(screen.getByText("Crea template"));
 
     await waitFor(() => expect(createTemplate).toHaveBeenCalledWith(expect.objectContaining({ name: "DeepSeek MoE" })));
+  });
+
+  it("disabilita un template abilitato", async () => {
+    renderPage();
+    await screen.findByText("Mixtral 8x22B");
+
+    fireEvent.click(screen.getByText("Disabilita"));
+
+    await waitFor(() =>
+      expect(updateTemplate).toHaveBeenCalledWith("t1", expect.objectContaining({ enabled: false }))
+    );
+  });
+
+  it("sincronizza un template modello da Hugging Face", async () => {
+    renderPage();
+    await screen.findByText("Mixtral 8x22B");
+
+    fireEvent.click(screen.getByText("Sync da HF"));
+
+    await waitFor(() => expect(syncTemplateFromHF).toHaveBeenCalledWith("t1"));
+  });
+
+  it("crea un template da Hugging Face inserendo il repo_id", async () => {
+    renderPage();
+    await screen.findByText("Mixtral 8x22B");
+
+    fireEvent.change(screen.getByLabelText("Repo Hugging Face"), {
+      target: { value: "deepseek-ai/deepseek-moe-16b-chat" },
+    });
+    fireEvent.click(screen.getByText("Crea da Hugging Face"));
+
+    await waitFor(() =>
+      expect(createTemplateFromHF).toHaveBeenCalledWith({ repo_id: "deepseek-ai/deepseek-moe-16b-chat" })
+    );
   });
 });

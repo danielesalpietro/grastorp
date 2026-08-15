@@ -1,14 +1,3 @@
-export type ModelArchitecture = "moe";
-
-export interface HFModel {
-  repo_id: string;
-  display_name: string;
-  architecture: ModelArchitecture;
-  num_experts: number | null;
-  params_billion: number | null;
-  description: string;
-}
-
 export interface GPUDevice {
   index: number;
   name: string;
@@ -101,6 +90,7 @@ export interface OptionEntry {
 export type TemplateType = "model" | "docker_registry";
 
 export interface ModelTemplateSpec {
+  repo_id: string;
   architecture: string;
   num_experts: number | null;
   num_experts_active: number | null;
@@ -129,6 +119,7 @@ export interface Template {
   type: TemplateType;
   name: string;
   description: string;
+  enabled: boolean;
   spec: ModelTemplateSpec | DockerRegistryTemplateSpec;
   created_at: string;
 }
@@ -137,7 +128,15 @@ export interface TemplateCreateRequest {
   type: TemplateType;
   name: string;
   description: string;
+  enabled: boolean;
   spec: ModelTemplateSpec | DockerRegistryTemplateSpec;
+}
+
+export interface TemplateFromHFRequest {
+  repo_id: string;
+  name?: string;
+  description?: string;
+  enabled?: boolean;
 }
 
 const BASE = "/api";
@@ -157,7 +156,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string; docker: boolean }>("/health"),
-  listModels: () => request<HFModel[]>("/models"),
   getHostInfo: () => request<HostInfo>("/system/host"),
   listGpus: () => request<GPUDevice[]>("/system/gpus"),
   listNics: () => request<NICDevice[]>("/system/nics"),
@@ -170,10 +168,19 @@ export const api = {
   deleteDeployment: (id: string) => request<void>(`/deployments/${id}`, { method: "DELETE" }),
   startDeployment: (id: string) => request<Deployment>(`/deployments/${id}/start`, { method: "POST" }),
   stopDeployment: (id: string) => request<Deployment>(`/deployments/${id}/stop`, { method: "POST" }),
-  listTemplates: (type?: TemplateType) => request<Template[]>(`/templates${type ? `?type=${type}` : ""}`),
+  listTemplates: (type?: TemplateType, enabled?: boolean) => {
+    const params = new URLSearchParams();
+    if (type) params.set("type", type);
+    if (enabled !== undefined) params.set("enabled", String(enabled));
+    const qs = params.toString();
+    return request<Template[]>(`/templates${qs ? `?${qs}` : ""}`);
+  },
   getTemplate: (id: string) => request<Template>(`/templates/${id}`),
   createTemplate: (payload: TemplateCreateRequest) =>
     request<Template>("/templates", { method: "POST", body: JSON.stringify(payload) }),
+  createTemplateFromHF: (payload: TemplateFromHFRequest) =>
+    request<Template>("/templates/from-hf", { method: "POST", body: JSON.stringify(payload) }),
+  syncTemplateFromHF: (id: string) => request<Template>(`/templates/${id}/sync-hf`, { method: "POST" }),
   updateTemplate: (id: string, payload: TemplateCreateRequest) =>
     request<Template>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteTemplate: (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" }),
