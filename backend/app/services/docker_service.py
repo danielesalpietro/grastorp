@@ -14,6 +14,7 @@ from docker.errors import DockerException, NotFound
 from app.schemas import ComputeMode, Deployment, Framework, WebUI
 
 _VLLM_IMAGE = "vllm/vllm-openai:latest"
+_LIBRARY_MOUNT_PATH = "/root/.cache/huggingface"
 # Nota: l'immagine pubblica vllm/vllm-openai è compilata per CUDA. La modalità
 # CPU Only passa --device cpu ma per un'inferenza CPU realmente funzionante
 # serve un'immagine costruita per il target CPU (vedi docker/Dockerfile.cpu
@@ -64,6 +65,14 @@ def start_container(deployment: Deployment) -> str:
             )
         ]
 
+    environment = {"HUGGING_FACE_HUB_TOKEN": ""}
+    volumes = None
+    if deployment.library_volume:
+        # Il modello è già nella Library condivisa: montiamo il volume in sola
+        # lettura al posto di lasciare che vLLM lo scarichi da sé nel container.
+        environment["HF_HOME"] = _LIBRARY_MOUNT_PATH
+        volumes = {deployment.library_volume: {"bind": _LIBRARY_MOUNT_PATH, "mode": "ro"}}
+
     container = client.containers.run(
         _VLLM_IMAGE,
         command=_build_vllm_command(deployment),
@@ -73,7 +82,8 @@ def start_container(deployment: Deployment) -> str:
         nano_cpus=deployment.resources.cpu_cores * 1_000_000_000,
         mem_limit=f"{deployment.resources.ram_gb}g",
         device_requests=device_requests,
-        environment={"HUGGING_FACE_HUB_TOKEN": ""},
+        environment=environment,
+        volumes=volumes,
     )
     return container.id
 

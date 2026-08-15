@@ -28,18 +28,46 @@ virtuali.
 - **GPU**: rilevamento di tutte le GPU NVIDIA presenti sull'host via
   `nvidia-smi` (vRAM, temperatura, utilizzo, potenza, driver, compute
   capability, PCI bus, UUID) — pensato per scalare da 1 a N schede.
-- **Deployments**: wizard di creazione guidato — selezione del modello MoE,
-  framework di inferenza, modalità **GPU** o **CPU Only**, risorse
-  (CPU/RAM/GPU/offload), configurazione di rete (IP, porta, NIC) e WebUI
-  opzionale.
+- **Deployments**: wizard di creazione guidato — selezione del modello tra i
+  Template modello abilitati, framework di inferenza, modalità **GPU** o
+  **CPU Only**, risorse (CPU/RAM/GPU/offload), configurazione di rete (IP,
+  porta, NIC) e WebUI opzionale.
 - **Gestione container**: avvio e arresto dei deployment tramite Docker SDK,
   sullo stesso host Docker su cui gira Grastorp.
+- **Templates**: catalogo di template riutilizzabili per il deploy, di due
+  tipi — modello (architettura, esperti, layer, parametri, sharding, context
+  length) e container pronto da registry Docker (immagine, RAM richiesta,
+  requisiti GPU). Le caratteristiche di un template modello possono essere
+  ricavate automaticamente da Hugging Face Hub dato solo il `repo_id`. Ogni
+  template ha un flag enable/disable: solo i modelli abilitati compaiono nel
+  wizard di deploy.
+- **Model Library**: i pesi di un modello scaricato vengono salvati una sola
+  volta in un volume condiviso (non uno per deployment), con ripresa
+  automatica dei download interrotti e verifica di integrità dei file
+  scaricati. I deployment montano la Library in sola lettura invece di
+  riscaricare il modello ogni volta.
+- **Storage / Datastore**: astrazione ispirata a vSphere — datastore locali
+  (disco dell'host) o su mount NFS su cui far risiedere la Model Library
+  (datastore iSCSI dichiarato in UI ma non ancora implementato).
 
 ## Stato del progetto
 
 Funzionante oggi:
 
-- Catalogo statico di modelli MoE (Mixtral 8x7B/8x22B, DeepSeek-MoE 16B).
+- Area **Template**: CRUD completo per template modello e registry Docker
+  (`/api/templates`), 3 modelli MoE seminati di default e abilitati
+  (Mixtral 8x7B/8x22B, DeepSeek-MoE 16B). Caratteristiche tecniche di un
+  template modello ricavabili da Hugging Face Hub dato il `repo_id`
+  (creazione o ri-sincronizzazione).
+- **Model Library**: download dei pesi in un volume Docker condiviso
+  (ripresa automatica se interrotto, verifica di integrità dei file),
+  montato in sola lettura nei container di deploy. I deployment vengono
+  bloccati se il modello richiesto è ancora in download o in errore nella
+  Library. ⚠️ Implementata e coperta da test con Docker/HTTP mockati, ma
+  non ancora validata con un download reale end-to-end (serve un host con
+  Docker attivo e accesso a `huggingface.co`) — vedi CHANGELOG.
+- **Datastore**: locale (sempre presente di default) o NFS, su cui può
+  risiedere la Model Library.
 - Deploy con framework **vLLM**, in modalità GPU (una o più schede, con
   CPU offload opzionale) o CPU Only.
 - Gestione risorse (CPU, RAM, GPU) e rete (IP/porta) per ogni deployment.
@@ -48,13 +76,15 @@ Funzionante oggi:
 
 Ancora stub (segnaposto in UI, non funzionanti):
 
-- Framework di inferenza alternativi (TGI, llama.cpp).
+- Framework di inferenza alternativi (TGI, llama.cpp) — e nessun vincolo
+  ancora imposto tra formato del modello (safetensors/GGUF) e framework
+  compatibile ([#4](https://github.com/danielesalpietro/grastorp/issues/4)).
 - WebUI opzionali affiancate all'API (Open WebUI, ecc.).
 - Rilevamento delle interfacce di rete dell'host.
-- Storage/cache dei pesi dei modelli.
+- Datastore iSCSI (dichiarato ma non ancora implementato) e S3 come storage
+  tier-2 per i modelli scaricati e non in uso
+  ([#6](https://github.com/danielesalpietro/grastorp/issues/6)).
 - Metriche di monitoraggio (host e per-deployment) e console/log streaming.
-- Ricerca modelli collegata all'Hugging Face Hub reale (oggi è un elenco
-  statico).
 
 Il dettaglio delle limitazioni note è tracciato nelle [Issue](../../issues)
 del repository; l'andamento del lavoro è in [LOGBOOK.md](LOGBOOK.md).
@@ -76,6 +106,21 @@ frontend/   React + Vite + TypeScript — interfaccia web
 - I deployment sono persistiti in un database SQLite su un volume Docker
   dedicato (`grastorp-data`, montato su `/app/data`); il path è
   configurabile con la variabile d'ambiente `GRASTORP_DB_PATH`.
+- Template e datastore sono persistiti su file JSON semplici (non SQLite),
+  in `backend/data/` (`templates.json`, `datastores.json`,
+  `library_config.json`) — scelta deliberata per tenere bassa la
+  complessità mentre questi modelli dati sono ancora in evoluzione; da
+  rivalutare insieme allo store dei deployment se serve interrogarli.
+- La **Model Library** vive in un unico volume Docker condiviso
+  (`grastorp-library`), creato sul datastore configurato in Storage. Il
+  backend, containerizzato con solo il socket Docker montato, non ha
+  accesso diretto al filesystem dell'host: download, verifica integrità e
+  rimozione di un modello avvengono perciò in un container "helper"
+  (sibling, avviato via socket, stesso pattern usato per vLLM), orchestrato
+  guardando stato e log via API Docker. Il download usa `huggingface_hub`
+  con lo stesso formato di cache che userebbe vLLM, quindi un download
+  interrotto riprende da dove si era fermato senza logica di resume
+  custom.
 
 ## Requisiti
 
@@ -84,6 +129,10 @@ frontend/   React + Vite + TypeScript — interfaccia web
   Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
   installati sull'host. Senza, Grastorp funziona comunque in modalità CPU
   Only ma non rileva GPU.
+- Per la Model Library: l'host Docker deve poter raggiungere
+  `huggingface.co` in uscita (download dei pesi) e, se si usa un datastore
+  NFS, il pacchetto client NFS deve essere disponibile sull'host (il
+  mount è gestito dal driver `local` nativo di Docker, nessun plugin).
 
 ## Avvio rapido
 

@@ -1,4 +1,6 @@
-from app.services import docker_service
+from app import template_store
+from app.schemas import LibraryStatus
+from app.services import docker_service, model_library_service
 
 VALID_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
@@ -8,9 +10,37 @@ def _create(client, **overrides):
     return client.post("/api/deployments", json=payload)
 
 
+def _set_library_status(status: LibraryStatus):
+    template = template_store.get_enabled_model_template_by_repo_id(VALID_MODEL)
+    updated_spec = template.spec.model_copy(update={"library_status": status})
+    template_store.save_template(template.model_copy(update={"spec": updated_spec}))
+
+
 def test_create_deployment_rejects_unknown_model(client):
     resp = _create(client, model_repo_id="unknown/model")
     assert resp.status_code == 400
+
+
+def test_create_deployment_blocked_while_library_downloading(client):
+    _set_library_status(LibraryStatus.DOWNLOADING)
+
+    resp = _create(client)
+    assert resp.status_code == 409
+
+
+def test_create_deployment_blocked_on_library_error(client):
+    _set_library_status(LibraryStatus.ERROR)
+
+    resp = _create(client)
+    assert resp.status_code == 409
+
+
+def test_create_deployment_sets_library_volume_when_ready(client):
+    _set_library_status(LibraryStatus.READY)
+
+    resp = _create(client)
+    assert resp.status_code == 201
+    assert resp.json()["library_volume"] == model_library_service.LIBRARY_VOLUME_NAME
 
 
 def test_create_deployment_with_defaults(client):

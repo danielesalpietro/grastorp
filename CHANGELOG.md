@@ -16,6 +16,61 @@ e il progetto aderisce a [Semantic Versioning](https://semver.org/lang/it/).
 - Volume Docker dedicato (`grastorp-data`, montato su `/app/data`) nel
   `docker-compose.yml`; path del database configurabile via
   `GRASTORP_DB_PATH`.
+- **Area Template** (`/api/templates`, pagina Templates): entità `Template`
+  con due tipi — modello (architettura, esperti, layer, parametri,
+  sharding, context length, quantizzazione) e container pronto da registry
+  Docker (immagine, RAM richiesta, requisiti GPU) — con CRUD completo,
+  persistita su file JSON (`backend/app/template_store.py`). I 3 modelli
+  MoE già noti sono seminati come template modello abilitati al primo
+  avvio. Ogni template ha un flag `enabled`: il `DeployWizard` sceglie il
+  modello tra i template abilitati (`type=model&enabled=true`) al posto
+  del vecchio catalogo statico, rimosso insieme a `hf_service.py` e
+  `api/models.py`.
+- **Caratteristiche modello da Hugging Face Hub**
+  (`backend/app/services/hf_metadata_service.py`): dato un `repo_id`,
+  interroga la REST API pubblica di HF (config.json + elenco file) per
+  ricavare architettura, esperti, layer, parametri e sharding. Nuovi
+  endpoint `POST /api/templates/from-hf` (crea un template dal solo
+  `repo_id`) e `POST /api/templates/{id}/sync-hf` (ri-sincronizza uno
+  esistente).
+- **Model Library condivisa**
+  (`backend/app/services/model_library_service.py`): i pesi di un modello
+  vengono scaricati una sola volta in un **unico volume Docker condiviso**
+  (`grastorp-library`, non uno per modello), popolato tramite un
+  container "helper" avviato via socket Docker — il backend containerizzato
+  non ha accesso diretto al filesystem dell'host. Il download usa
+  `huggingface_hub` con lo stesso formato di cache che userebbe vLLM, quindi
+  un download interrotto riprende da dove si era fermato senza logica di
+  resume custom. Endpoint su `/api/templates/{id}/library`: avvio/ripresa
+  download, stato con percentuale di avanzamento (riallineato dal
+  container reale), verifica di integrità (nome+size dei file
+  `.safetensors` contro quanto riportato da HF), rimozione del singolo
+  modello dal volume condiviso (senza toccare gli altri). I deployment
+  vengono bloccati (409) se il modello richiesto è in download o in errore
+  nella Library; se pronto, il volume viene montato **in sola lettura** nel
+  container vLLM (`HF_HOME`), che quindi non lo riscarica.
+- **Datastore** (`/api/storage/datastores`, pagina Storage — era uno stub
+  vuoto): astrazione ispirata ai datastore vSphere, per far risiedere la
+  Model Library su storage locale o condiviso. Tipi: `local` (sempre
+  presente di default), `nfs` (via `driver_opts` nativi del driver `local`
+  di Docker, nessun plugin di terze parti), `iscsi` dichiarato ma
+  esplicitamente rifiutato in creazione come stub futuro. La Model Library
+  usa il datastore scelto in `GET/PUT /api/storage/library/config`.
+
+### Known limitations
+
+- La Model Library e i Datastore NFS non sono stati validati con un
+  download/mount reale in questo ciclo di sviluppo: l'ambiente usato non
+  aveva accesso di rete a `huggingface.co` né un demone Docker attivo.
+  Tutti i test coprono la logica con un client Docker fake e chiamate HTTP
+  mockate — verificare su un host reale prima del rollout.
+- Nessun vincolo ancora imposto tra formato del modello (safetensors vs
+  GGUF) e framework di deploy compatibile: si può selezionare una
+  combinazione incoerente e scoprirlo solo all'avvio del container
+  ([#4](https://github.com/danielesalpietro/grastorp/issues/4)).
+- S3 come storage tier-2 per i modelli scaricati e non più in uso è solo
+  progettato, non implementato
+  ([#6](https://github.com/danielesalpietro/grastorp/issues/6)).
 
 ## [0.1.0] - 2026-08-14
 

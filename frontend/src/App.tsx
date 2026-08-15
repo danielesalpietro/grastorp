@@ -6,6 +6,7 @@ import { ModelConfiguration } from "./pages/ModelConfiguration";
 import { Storage } from "./pages/Storage";
 import { Networking } from "./pages/Networking";
 import { Gpu } from "./pages/Gpu";
+import { Templates } from "./pages/Templates";
 import { HostManage } from "./pages/host/HostManage";
 import { HostMonitor } from "./pages/host/HostMonitor";
 
@@ -22,6 +23,7 @@ export function App() {
         <Route path="/storage" element={<Storage />} />
         <Route path="/networking" element={<Networking />} />
         <Route path="/gpu" element={<Gpu />} />
+        <Route path="/templates" element={<Templates />} />
       </Route>
     </Routes>
   );

@@ -5,7 +5,7 @@ Diario tecnico di avanzamento del progetto. A differenza del
 traccia di decisioni architetturali, stato dei singoli componenti e prossimi
 passi — utile a chi riprende il lavoro in un secondo momento.
 
-## Stato attuale (2026-08-14, v0.1.0)
+## Stato attuale (2026-08-15)
 
 | Componente                          | Stato |
 |--------------------------------------|-------|
@@ -15,14 +15,16 @@ passi — utile a chi riprende il lavoro in un secondo momento.
 | Host → Manage (info host/docker)     | ✅ funzionante |
 | Host → Monitor (metriche)            | 🚧 stub |
 | GPU (rilevamento nvidia-smi)         | ✅ funzionante (1→N schede) |
-| Deployments (wizard + gestione)      | ✅ funzionante per vLLM |
-| Framework TGI / llama.cpp            | 🚧 stub |
+| Deployments (wizard + gestione)      | ✅ funzionante per vLLM, modelli scelti tra i Template abilitati |
+| Framework TGI / llama.cpp            | 🚧 stub; nessun vincolo formato↔framework ([#4](https://github.com/danielesalpietro/grastorp/issues/4)) |
 | WebUI (Open WebUI, ecc.)             | 🚧 stub |
-| Catalogo modelli HF                  | 🚧 statico, non collegato all'API reale |
-| Storage / cache modelli              | 🚧 stub |
+| Template (modello + registry Docker) | ✅ funzionante, CRUD + fetch caratteristiche da HF Hub |
+| Model Library (download pesi)        | ⚠️ implementata e testata con mock, non ancora validata live ([dettagli](#2026-08-15--area-template-model-library-e-datastore)) |
+| Datastore (locale/NFS/iSCSI)         | ✅ locale e NFS funzionanti, iSCSI stub; S3 solo progettato ([#6](https://github.com/danielesalpietro/grastorp/issues/6)) |
 | Rilevamento NIC host                 | 🚧 stub |
 | Test automatici + CI                 | ✅ pytest (backend), vitest+RTL (frontend), GitHub Actions |
 | Persistenza deployment (SQLite)      | ✅ funzionante, dati su volume Docker |
+| Persistenza template/datastore (JSON)| ✅ funzionante, file semplici in `backend/data/` |
 
 ## Decisioni tecniche
 
@@ -66,19 +68,115 @@ passi — utile a chi riprende il lavoro in un secondo momento.
   condivisa tra thread) perché le route sono handler sync eseguiti nel
   threadpool di FastAPI. Verificato con un riavvio reale del processo
   (non solo mock) che i dati sopravvivono.
+- **Persistenza template/datastore**: file JSON semplici
+  (`template_store.py`, `datastore_store.py`, `library_config_store.py`),
+  non SQLite — deliberatamente più semplice della persistenza dei
+  deployment, perché questi modelli dati sono cambiati più volte nel giro
+  di poche ore durante lo sviluppo (aggiunta di `enabled`, dei campi
+  Library, rimozione di `volume_name`...). Da rivalutare insieme allo
+  store dei deployment se in futuro serve interrogarli via query.
+- **Model Library: un volume condiviso, non uno per modello**: la prima
+  implementazione usava un volume Docker per repo_id
+  (`grastorp-model-<repo>`); rivista dopo aver introdotto i Datastore,
+  perché un volume-per-modello avrebbe richiesto pre-provisionare N
+  export/sottocartelle NFS lato server. Un unico volume condiviso
+  (`grastorp-library`) risolve il problema: i modelli convivono al suo
+  interno come sottocartelle, usando la stessa struttura di cache che
+  `huggingface_hub` adotterebbe da sé (`models--org--name/`), quindi non
+  serve gestire il layout a mano. Le operazioni per singolo modello
+  (verifica integrità, rimozione) restano scoped alla sua sottocartella
+  (calcolata riproducendo la convenzione di naming di HF) senza toccare
+  gli altri modelli nel volume.
+- **Download nella Library via container helper, non nel processo
+  backend**: il backend gira containerizzato con solo il socket Docker
+  montato (stesso schema usato per avviare i container vLLM), quindi non
+  ha accesso diretto al filesystem dell'host e non può scrivere lui
+  stesso dentro un volume. Il download/verifica/rimozione avviene perciò
+  in un container "helper" sibling (immagine `python:3.11-slim` con
+  `huggingface_hub` installato al volo via pip, per non dover
+  costruire/pubblicare un'immagine dedicata per ora), che il backend
+  orchestra guardando stato e log via API Docker — mai eseguendo comandi
+  sull'host direttamente.
+- **Datastore, non configurazione diretta della Library**: la prima bozza
+  metteva server/export NFS direttamente sulle impostazioni della Model
+  Library. Rivista su richiesta esplicita per ricalcare l'architettura
+  vSphere (datastore come concetto a sé, la Library — concettualmente un
+  Content Library — vi risiede sopra): l'obiettivo dichiarato è farsi
+  riconoscere da chi ragiona già per VM/datastore/content library in
+  vSphere, non introdurre un vocabolario nuovo.
+- **NFS via driver Docker nativo**: nessun plugin di terze parti — il
+  driver `local` di Docker supporta NFS passando `driver_opts` (`type`,
+  `o`, `device`) a `docker volume create`. iSCSI non ha un equivalente
+  altrettanto diretto (richiederebbe gestione di initiator/LUN sull'host),
+  dichiarato come stub e esplicitamente rifiutato in creazione finché non
+  si implementa.
 
 ## Prossimi passi
 
 1. Immagine vLLM CPU-ready per far funzionare davvero la modalità CPU Only
    ([#1](https://github.com/danielesalpietro/grastorp/issues/1)).
-2. Collegare la ricerca modelli all'Hugging Face Hub API reale (oggi
-   catalogo statico in `hf_service.py`).
-3. Rilevamento reale delle interfacce di rete dell'host.
-4. Framework di inferenza alternativi (TGI, llama.cpp).
-5. Metriche di monitoraggio host e per-deployment; console/log streaming.
-6. Storage/cache dei pesi dei modelli scaricati.
+2. Validare la Model Library con un download reale end-to-end (host con
+   Docker attivo e accesso a `huggingface.co`) e un mount NFS reale — non
+   verificabile nell'ambiente di sviluppo usato finora.
+3. Vincolare il framework al formato del modello (safetensors → vLLM,
+   GGUF → llama.cpp), oggi selezionabili in combinazioni incoerenti
+   ([#4](https://github.com/danielesalpietro/grastorp/issues/4)).
+4. Check dello spazio libero sul datastore prima di avviare un download
+   nella Library (oggi si può avviare anche senza spazio sufficiente, e
+   fallisce a metà) + vista d'insieme dello spazio occupato.
+5. S3 come storage tier-2 per i modelli scaricati e non in uso, con
+   metadata di utilizzo (ultimo deployment associato, ultimo utilizzo) per
+   distinguere modelli caldi/freddi ([#6](https://github.com/danielesalpietro/grastorp/issues/6)).
+6. Rilevamento reale delle interfacce di rete dell'host.
+7. Framework di inferenza alternativi (TGI, llama.cpp).
+8. Metriche di monitoraggio host e per-deployment; console/log streaming.
 
 ## Log
+
+### 2026-08-15 — Area Template, Model Library e Datastore
+
+Giornata di lavoro più corposa, in più tappe:
+
+1. **Area Template** (`/api/templates`): entità `Template` a due tipi
+   (modello / registry Docker), CRUD completo, persistita su file JSON.
+   I 3 modelli MoE del vecchio catalogo statico diventano template
+   seminati di default; `hf_service.py`/`api/models.py` rimossi.
+2. **Enable/disable + wizard**: flag `enabled` sul template; il
+   `DeployWizard` sceglie il modello tra i template abilitati invece che
+   dal catalogo statico; `deployments.py` valida contro questi.
+3. **Caratteristiche da Hugging Face Hub**: `hf_metadata_service.py`
+   interroga la REST API pubblica di HF per ricavare architettura,
+   esperti, layer, parametri, sharding dato solo il `repo_id`
+   (`POST /api/templates/from-hf`, `POST /api/templates/{id}/sync-hf`).
+   Non verificabile live in questo ambiente di sviluppo: `huggingface.co`
+   risulta esplicitamente bloccato dalla policy di rete del sandbox
+   (`EGRESS_BLOCKED`, confermato sia con `curl` diretto sia con il tool di
+   fetch); il servizio è scritto e testato con chiamate HTTP mockate.
+4. **Model Library**: prima versione con un volume Docker per repo_id,
+   poi rivista (vedi Decisioni tecniche) verso un **unico volume
+   condiviso**, popolato da un container helper avviato via socket Docker
+   (il backend containerizzato non ha accesso diretto al filesystem
+   host). Download resumable via `huggingface_hub` (stessa cache che
+   userebbe vLLM), verifica di integrità per nome+size dei file
+   `.safetensors`, deployment bloccati se il modello non è pronto. Anche
+   qui, nessun demone Docker attivo in questo ambiente (`docker info`
+   fallisce: nessun `/var/run/docker.sock`) — tutti i test usano un
+   client Docker fake, sullo stesso modello già in uso per
+   `docker_service.py`.
+5. **Datastore**: introdotti su richiesta esplicita per ricalcare
+   l'architettura vSphere (datastore locale/NFS/iSCSI stub, Model Library
+   come "Content Library" che vi risiede sopra), invece di configurare
+   NFS direttamente sulla Library. Pagina Storage (era uno stub vuoto)
+   ora la gestisce.
+6. Aperte le issue [#4](https://github.com/danielesalpietro/grastorp/issues/4)
+   (vincolo formato↔framework del modello) e
+   [#6](https://github.com/danielesalpietro/grastorp/issues/6) (S3 come
+   storage tier-2 per modelli scaricati e non in uso, con metadata
+   caldo/freddo da progettare) per il lavoro di follow-up. Aperta la PR
+   [#5](https://github.com/danielesalpietro/grastorp/pull/5).
+
+Suite di test cresciuta da 43 a 84 casi lato backend (15 lato frontend)
+nell'arco della giornata, mantenuta verde ad ogni tappa.
 
 ### 2026-08-14 — Persistenza SQLite
 

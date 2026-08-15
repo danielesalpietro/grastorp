@@ -1,14 +1,3 @@
-export type ModelArchitecture = "moe";
-
-export interface HFModel {
-  repo_id: string;
-  display_name: string;
-  architecture: ModelArchitecture;
-  num_experts: number | null;
-  params_billion: number | null;
-  description: string;
-}
-
 export interface GPUDevice {
   index: number;
   name: string;
@@ -80,6 +69,7 @@ export interface Deployment {
   network: NetworkConfig;
   state: DeploymentState;
   container_id: string | null;
+  library_volume: string | null;
   created_at: string;
 }
 
@@ -96,6 +86,117 @@ export interface OptionEntry {
   id: string;
   label: string;
   available: boolean;
+}
+
+export type TemplateType = "model" | "docker_registry";
+
+export type LibraryStatus = "not_downloaded" | "downloading" | "ready" | "error";
+
+export interface ModelTemplateSpec {
+  repo_id: string;
+  registry_id: string;
+  architecture: string;
+  num_experts: number | null;
+  num_experts_active: number | null;
+  num_layers: number | null;
+  params_billion: number | null;
+  shard_size_gb: number | null;
+  num_shards: number | null;
+  context_length: number | null;
+  quantization: string | null;
+  library_status: LibraryStatus;
+  library_progress_percent: number | null;
+  library_error: string | null;
+  downloaded_at: string | null;
+}
+
+export interface DockerRegistryTemplateSpec {
+  registry: string;
+  image: string;
+  tag: string;
+  size_gb: number | null;
+  ram_required_mb: number | null;
+  gpu_required: boolean;
+  gpu_compatible: string[];
+  min_vram_mb: number | null;
+  cuda_version: string | null;
+}
+
+export interface Template {
+  id: string;
+  type: TemplateType;
+  name: string;
+  description: string;
+  enabled: boolean;
+  spec: ModelTemplateSpec | DockerRegistryTemplateSpec;
+  created_at: string;
+}
+
+export interface TemplateCreateRequest {
+  type: TemplateType;
+  name: string;
+  description: string;
+  enabled: boolean;
+  spec: ModelTemplateSpec | DockerRegistryTemplateSpec;
+}
+
+export interface TemplateFromRegistryRequest {
+  registry_id: string;
+  repo_id: string;
+  name?: string;
+  description?: string;
+  enabled?: boolean;
+}
+
+export type RegistryProvider = "huggingface" | "custom";
+
+export interface ModelRegistry {
+  id: string;
+  name: string;
+  provider: RegistryProvider;
+  base_url: string;
+  api_key: string | null;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface ModelRegistryCreateRequest {
+  name: string;
+  provider: RegistryProvider;
+  base_url?: string | null;
+  api_key?: string | null;
+  enabled?: boolean;
+}
+
+export interface RegistryModelResult {
+  repo_id: string;
+  downloads: number | null;
+  likes: number | null;
+  pipeline_tag: string | null;
+}
+
+export type DatastoreType = "local" | "iscsi" | "nfs";
+
+export interface Datastore {
+  id: string;
+  name: string;
+  type: DatastoreType;
+  nfs_server: string | null;
+  nfs_export_path: string | null;
+  nfs_options: string;
+  created_at: string;
+}
+
+export interface DatastoreCreateRequest {
+  name: string;
+  type: DatastoreType;
+  nfs_server?: string | null;
+  nfs_export_path?: string | null;
+  nfs_options?: string;
+}
+
+export interface LibraryConfig {
+  datastore_id: string;
 }
 
 const BASE = "/api";
@@ -115,7 +216,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string; docker: boolean }>("/health"),
-  listModels: () => request<HFModel[]>("/models"),
   getHostInfo: () => request<HostInfo>("/system/host"),
   listGpus: () => request<GPUDevice[]>("/system/gpus"),
   listNics: () => request<NICDevice[]>("/system/nics"),
@@ -128,4 +228,39 @@ export const api = {
   deleteDeployment: (id: string) => request<void>(`/deployments/${id}`, { method: "DELETE" }),
   startDeployment: (id: string) => request<Deployment>(`/deployments/${id}/start`, { method: "POST" }),
   stopDeployment: (id: string) => request<Deployment>(`/deployments/${id}/stop`, { method: "POST" }),
+  listTemplates: (type?: TemplateType, enabled?: boolean) => {
+    const params = new URLSearchParams();
+    if (type) params.set("type", type);
+    if (enabled !== undefined) params.set("enabled", String(enabled));
+    const qs = params.toString();
+    return request<Template[]>(`/templates${qs ? `?${qs}` : ""}`);
+  },
+  getTemplate: (id: string) => request<Template>(`/templates/${id}`),
+  createTemplate: (payload: TemplateCreateRequest) =>
+    request<Template>("/templates", { method: "POST", body: JSON.stringify(payload) }),
+  createTemplateFromRegistry: (payload: TemplateFromRegistryRequest) =>
+    request<Template>("/templates/from-registry", { method: "POST", body: JSON.stringify(payload) }),
+  syncTemplateFromRegistry: (id: string) => request<Template>(`/templates/${id}/sync-registry`, { method: "POST" }),
+  downloadToLibrary: (id: string) => request<Template>(`/templates/${id}/library/download`, { method: "POST" }),
+  getLibraryStatus: (id: string) => request<Template>(`/templates/${id}/library`),
+  verifyLibrary: (id: string) => request<Template>(`/templates/${id}/library/verify`, { method: "POST" }),
+  deleteLibrary: (id: string) => request<Template>(`/templates/${id}/library`, { method: "DELETE" }),
+  updateTemplate: (id: string, payload: TemplateCreateRequest) =>
+    request<Template>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteTemplate: (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" }),
+  listDatastores: () => request<Datastore[]>("/storage/datastores"),
+  createDatastore: (payload: DatastoreCreateRequest) =>
+    request<Datastore>("/storage/datastores", { method: "POST", body: JSON.stringify(payload) }),
+  deleteDatastore: (id: string) => request<void>(`/storage/datastores/${id}`, { method: "DELETE" }),
+  getLibraryConfig: () => request<LibraryConfig>("/storage/library/config"),
+  setLibraryConfig: (payload: LibraryConfig) =>
+    request<LibraryConfig>("/storage/library/config", { method: "PUT", body: JSON.stringify(payload) }),
+  listRegistries: () => request<ModelRegistry[]>("/registries"),
+  createRegistry: (payload: ModelRegistryCreateRequest) =>
+    request<ModelRegistry>("/registries", { method: "POST", body: JSON.stringify(payload) }),
+  updateRegistry: (id: string, payload: ModelRegistryCreateRequest) =>
+    request<ModelRegistry>(`/registries/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteRegistry: (id: string) => request<void>(`/registries/${id}`, { method: "DELETE" }),
+  searchRegistryModels: (id: string, q: string) =>
+    request<RegistryModelResult[]>(`/registries/${id}/search?q=${encodeURIComponent(q)}`),
 };

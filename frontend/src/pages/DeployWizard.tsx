@@ -6,9 +6,10 @@ import {
   DeploymentCreateRequest,
   Framework,
   GPUDevice,
-  HFModel,
+  ModelTemplateSpec,
   NICDevice,
   OptionEntry,
+  Template,
   WebUI,
 } from "../api/client";
 import { useTasks } from "../context/TasksContext";
@@ -36,7 +37,7 @@ function defaultForm(): DeploymentCreateRequest {
 export function DeployWizard() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<DeploymentCreateRequest>(defaultForm());
-  const [models, setModels] = useState<HFModel[]>([]);
+  const [models, setModels] = useState<Template[]>([]);
   const [gpus, setGpus] = useState<GPUDevice[]>([]);
   const [nics, setNics] = useState<NICDevice[]>([]);
   const [frameworks, setFrameworks] = useState<OptionEntry[]>([]);
@@ -47,7 +48,7 @@ export function DeployWizard() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.listModels().then(setModels);
+    api.listTemplates("model", true).then(setModels);
     api.listGpus().then(setGpus);
     api.listNics().then(setNics);
     api.listFrameworks().then(setFrameworks);
@@ -136,20 +137,28 @@ export function DeployWizard() {
         <div className="wizard__content">
           {step === 0 && (
             <div className="panel">
-              <p>Seleziona un modello MoE da Hugging Face.</p>
-              {models.map((m) => (
-                <div
-                  key={m.repo_id}
-                  className={"model-card" + (form.model_repo_id === m.repo_id ? " selected" : "")}
-                  onClick={() => update("model_repo_id", m.repo_id)}
-                >
-                  <div className="model-card__title">{m.display_name}</div>
-                  <div className="model-card__meta">
-                    {m.repo_id} · {m.num_experts} esperti · {m.params_billion}B parametri
+              <p>Seleziona un modello MoE tra i template abilitati.</p>
+              {models.length === 0 && (
+                <span className="stub-note">
+                  Nessun template modello abilitato: creane uno nella sezione Templates
+                </span>
+              )}
+              {models.map((m) => {
+                const spec = m.spec as ModelTemplateSpec;
+                return (
+                  <div
+                    key={spec.repo_id}
+                    className={"model-card" + (form.model_repo_id === spec.repo_id ? " selected" : "")}
+                    onClick={() => update("model_repo_id", spec.repo_id)}
+                  >
+                    <div className="model-card__title">{m.name}</div>
+                    <div className="model-card__meta">
+                      {spec.repo_id} · {spec.num_experts ?? "—"} esperti · {spec.params_billion ?? "—"}B parametri
+                    </div>
+                    <div className="model-card__meta">{m.description}</div>
                   </div>
-                  <div className="model-card__meta">{m.description}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

@@ -30,6 +30,9 @@ export function Sidebar() {
         <NavLink to="/gpu" className={linkClass}>
           GPU
         </NavLink>
+        <NavLink to="/templates" className={linkClass}>
+          Templates
+        </NavLink>
       </div>
     </div>
   );
