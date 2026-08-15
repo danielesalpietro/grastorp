@@ -71,6 +71,52 @@ class NICDevice(BaseModel):
     address: str | None = None
 
 
+class DatastoreType(str, Enum):
+    LOCAL = "local"
+    # LUN condivisa via iSCSI: stub, non ancora supportato (vedi DatastoreCreateRequest).
+    ISCSI = "iscsi"
+    NFS = "nfs"
+
+
+class Datastore(BaseModel):
+    """Storage su cui possono risiedere risorse condivise come la Model Library.
+
+    Rispecchia il concetto di datastore vSphere: locale (disco host), condiviso via
+    iSCSI (stub futuro) o su mount point di rete (NFS, già supportato nativamente
+    dal driver 'local' di Docker passando i driver_opts giusti).
+    """
+
+    id: str
+    name: str
+    type: DatastoreType
+    nfs_server: str | None = None
+    nfs_export_path: str | None = None
+    nfs_options: str = "rw,nfsvers=4"
+    created_at: str
+
+
+class DatastoreCreateRequest(BaseModel):
+    name: str
+    type: DatastoreType
+    nfs_server: str | None = None
+    nfs_export_path: str | None = None
+    nfs_options: str = "rw,nfsvers=4"
+
+    @model_validator(mode="after")
+    def _validate_type_fields(self) -> "DatastoreCreateRequest":
+        if self.type is DatastoreType.ISCSI:
+            raise ValueError("Datastore iSCSI non ancora supportato")
+        if self.type is DatastoreType.NFS and not (self.nfs_server and self.nfs_export_path):
+            raise ValueError("Datastore NFS richiede nfs_server e nfs_export_path")
+        return self
+
+
+class LibraryConfig(BaseModel):
+    """Impostazione globale: su quale datastore risiede la Model Library condivisa."""
+
+    datastore_id: str = "local"
+
+
 class OffloadConfig(BaseModel):
     enabled: bool = False
     cpu_offload_gb: float = Field(default=0, ge=0)
@@ -148,9 +194,8 @@ class ModelTemplateSpec(BaseModel):
     context_length: int | None = None
     quantization: str | None = None
 
-    # Library: tracciano se/dove i pesi sono già stati scaricati in un volume
-    # Docker condiviso, per evitare di scaricarli una volta per ogni deployment.
-    volume_name: str | None = None
+    # Library: tracciano se i pesi sono già stati scaricati nel volume Library
+    # condiviso, per evitare di scaricarli una volta per ogni deployment.
     library_status: LibraryStatus = LibraryStatus.NOT_DOWNLOADED
     library_progress_percent: float | None = None
     library_error: str | None = None

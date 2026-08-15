@@ -20,7 +20,6 @@ const MODEL_TEMPLATE = {
     num_shards: 8,
     context_length: 65536,
     quantization: "fp16",
-    volume_name: null,
     library_status: "not_downloaded",
     library_progress_percent: null,
     library_error: null,
@@ -33,7 +32,7 @@ const READY_TEMPLATE = {
   ...MODEL_TEMPLATE,
   id: "t2",
   name: "DeepSeek-MoE 16B",
-  spec: { ...MODEL_TEMPLATE.spec, volume_name: "grastorp-model-deepseek", library_status: "ready" },
+  spec: { ...MODEL_TEMPLATE.spec, library_status: "ready" },
 };
 
 const listTemplates = vi.fn().mockResolvedValue([MODEL_TEMPLATE]);
@@ -50,7 +49,7 @@ const getLibraryStatus = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
 const verifyLibrary = vi.fn().mockResolvedValue(READY_TEMPLATE);
 const deleteLibrary = vi.fn().mockResolvedValue({
   ...READY_TEMPLATE,
-  spec: { ...READY_TEMPLATE.spec, volume_name: null, library_status: "not_downloaded" },
+  spec: { ...READY_TEMPLATE.spec, library_status: "not_downloaded" },
 });
 
 vi.mock("../../api/client", () => ({

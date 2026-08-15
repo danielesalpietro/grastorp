@@ -1,18 +1,21 @@
-"""Library condivisa dei pesi dei modelli: un volume Docker per repo_id, scaricato una
-sola volta e montato in sola lettura dai deployment che lo usano.
+"""Model Library condivisa: un unico volume Docker per tutti i modelli, scaricati una
+sola volta e montati in sola lettura dai deployment che li usano.
+
+Il volume risiede sul datastore configurato (library_config_store + datastore_store):
+locale (driver Docker di default) o su un mount NFS (driver_opts nativi del driver
+'local' di Docker, nessun plugin di terze parti). All'interno, i modelli convivono
+come sottocartelle: usiamo per il download la stessa struttura di cache che
+huggingface_hub adotterebbe da sé (models--org--name/), quindi non serve gestire
+manualmente il layout — e un download interrotto riprende da dove si era fermato
+in modo nativo, senza logica di resume custom.
 
 Il backend gira containerizzato con solo il socket Docker montato (vedi
 docker_service.py e docker-compose.yml): non ha accesso diretto al filesystem
-dell'host, quindi non può scrivere lui stesso dentro un volume. Il download
-avviene perciò in un container "helper" (sibling, avviato via socket, stesso
-pattern usato per vLLM), che il backend orchestra e monitora tramite l'API
-Docker (stato del container + log) senza mai montare il volume su se stesso.
-
-Il download usa huggingface_hub, la stessa libreria che vLLM userebbe per
-scaricare il modello da sé: la cache che scrive nel volume (cartelle
-models--org--name/, file .incomplete per i download interrotti) è la stessa
-struttura, quindi riprende da dove si era fermato in modo nativo, senza
-logica di resume custom.
+dell'host, quindi non può scrivere lui stesso dentro il volume. Ogni operazione
+(download, verifica, rimozione di un singolo modello) avviene perciò in un
+container "helper" (sibling, avviato via socket, stesso pattern usato per vLLM),
+che il backend orchestra e monitora tramite l'API Docker (stato + log) senza mai
+montare il volume su se stesso.
 """
 
 from __future__ import annotations
@@ -24,9 +27,11 @@ from datetime import datetime, timezone
 import docker
 from docker.errors import DockerException, NotFound
 
-from app import template_store
-from app.schemas import LibraryStatus, ModelTemplateSpec, Template, TemplateType
+from app import datastore_store, library_config_store, template_store
+from app.schemas import DatastoreType, LibraryStatus, ModelTemplateSpec, Template, TemplateType
 from app.services import hf_metadata_service
+
+LIBRARY_VOLUME_NAME = "grastorp-library"
 
 _DOWNLOADER_IMAGE = "python:3.11-slim"
 _MOUNT_PATH = "/data"
@@ -60,12 +65,21 @@ except Exception as exc:
 _VERIFY_SCRIPT = """
 import json, os
 
+base = os.path.join("/data", os.environ["CACHE_FOLDER"])
 result = []
-for root, _dirs, filenames in os.walk("/data"):
+for root, _dirs, filenames in os.walk(base):
     for name in filenames:
         if name.endswith(".safetensors"):
             result.append({"name": name, "size": os.path.getsize(os.path.join(root, name))})
 print(json.dumps(result))
+"""
+
+_DELETE_SCRIPT = """
+import os, shutil
+target = os.path.join("/data", os.environ["CACHE_FOLDER"])
+if os.path.isdir(target):
+    shutil.rmtree(target)
+print("ok")
 """
 
 _client: docker.DockerClient | None = None
@@ -82,9 +96,10 @@ def _get_client() -> docker.DockerClient:
     return _client
 
 
-def _volume_name(repo_id: str) -> str:
-    slug = re.sub(r"[^a-z0-9_.-]+", "-", repo_id.lower()).strip("-")
-    return f"grastorp-model-{slug}"
+def _cache_folder(repo_id: str) -> str:
+    """Nome della sottocartella che huggingface_hub userebbe per questo repo nella cache."""
+    slug = re.sub(r"[^a-zA-Z0-9_.-]+", "--", repo_id)
+    return f"models--{slug}"
 
 
 def _downloader_container_name(template_id: str) -> str:
@@ -116,8 +131,37 @@ def _last_json_line(logs: bytes) -> dict | None:
     return None
 
 
+def _ensure_library_volume(client: docker.DockerClient) -> None:
+    """Crea il volume Library se non esiste, sul datastore attualmente configurato."""
+    try:
+        client.volumes.get(LIBRARY_VOLUME_NAME)
+        return
+    except NotFound:
+        pass
+
+    datastore_id = library_config_store.get_config().datastore_id
+    datastore = datastore_store.get_datastore(datastore_id)
+    if datastore is None:
+        raise ModelLibraryError(f"Datastore '{datastore_id}' configurato per la Library non trovato")
+
+    if datastore.type is DatastoreType.LOCAL:
+        client.volumes.create(name=LIBRARY_VOLUME_NAME)
+    elif datastore.type is DatastoreType.NFS:
+        client.volumes.create(
+            name=LIBRARY_VOLUME_NAME,
+            driver="local",
+            driver_opts={
+                "type": "nfs",
+                "o": f"addr={datastore.nfs_server},{datastore.nfs_options}",
+                "device": f":{datastore.nfs_export_path}",
+            },
+        )
+    else:
+        raise ModelLibraryError(f"Datastore di tipo '{datastore.type.value}' non ancora supportato per la Library")
+
+
 def start_download(template: Template) -> Template:
-    """Avvia (o riprende) il download dei pesi nel volume dedicato al repo."""
+    """Avvia (o riprende) il download dei pesi nella Library condivisa."""
     spec = _model_spec(template)
 
     try:
@@ -125,11 +169,7 @@ def start_download(template: Template) -> Template:
     except DockerException as exc:
         raise ModelLibraryError(f"Docker non raggiungibile: {exc}") from exc
 
-    volume_name = spec.volume_name or _volume_name(spec.repo_id)
-    try:
-        client.volumes.get(volume_name)
-    except NotFound:
-        client.volumes.create(name=volume_name)
+    _ensure_library_volume(client)
 
     container_name = _downloader_container_name(template.id)
     existing = _find_container(client, container_name)
@@ -144,13 +184,12 @@ def start_download(template: Template) -> Template:
             command=["python3", "-c", _DOWNLOAD_SCRIPT],
             name=container_name,
             detach=True,
-            volumes={volume_name: {"bind": _MOUNT_PATH, "mode": "rw"}},
+            volumes={LIBRARY_VOLUME_NAME: {"bind": _MOUNT_PATH, "mode": "rw"}},
             environment={"REPO_ID": spec.repo_id},
         )
 
     updated_spec = spec.model_copy(
         update={
-            "volume_name": volume_name,
             "library_status": LibraryStatus.DOWNLOADING,
             "library_error": None,
             "library_progress_percent": spec.library_progress_percent if already_running else 0.0,
@@ -207,9 +246,9 @@ def get_status(template: Template) -> Template:
 
 
 def verify_library(template: Template) -> Template:
-    """Verifica che i file .safetensors nel volume corrispondano (nome e size) a quelli attesi da HF."""
+    """Verifica che i file .safetensors del modello nella Library corrispondano (nome e size) a quelli attesi da HF."""
     spec = _model_spec(template)
-    if not spec.volume_name:
+    if spec.library_status is LibraryStatus.NOT_DOWNLOADED:
         raise ModelLibraryError("Nessun download in corso o completato per questo template")
 
     expected = hf_metadata_service.list_safetensor_files(spec.repo_id)
@@ -222,11 +261,13 @@ def verify_library(template: Template) -> Template:
     except DockerException as exc:
         raise ModelLibraryError(f"Docker non raggiungibile: {exc}") from exc
 
+    cache_folder = _cache_folder(spec.repo_id)
     container = client.containers.run(
         _DOWNLOADER_IMAGE,
         command=["python3", "-c", _VERIFY_SCRIPT],
         detach=True,
-        volumes={spec.volume_name: {"bind": _MOUNT_PATH, "mode": "ro"}},
+        volumes={LIBRARY_VOLUME_NAME: {"bind": _MOUNT_PATH, "mode": "ro"}},
+        environment={"CACHE_FOLDER": cache_folder},
     )
     try:
         container.wait(timeout=60)
@@ -258,7 +299,7 @@ def verify_library(template: Template) -> Template:
 
 
 def delete_library(template: Template) -> Template:
-    """Rimuove il volume e resetta lo stato Library del template."""
+    """Rimuove solo i file di questo modello dalla Library (non tocca gli altri modelli nel volume condiviso)."""
     spec = _model_spec(template)
 
     try:
@@ -266,19 +307,29 @@ def delete_library(template: Template) -> Template:
     except DockerException as exc:
         raise ModelLibraryError(f"Docker non raggiungibile: {exc}") from exc
 
-    container = _find_container(client, _downloader_container_name(template.id))
-    if container is not None:
-        container.remove(force=True)
+    downloader = _find_container(client, _downloader_container_name(template.id))
+    if downloader is not None:
+        downloader.remove(force=True)
 
-    if spec.volume_name:
+    try:
+        client.volumes.get(LIBRARY_VOLUME_NAME)
+    except NotFound:
+        pass
+    else:
+        container = client.containers.run(
+            _DOWNLOADER_IMAGE,
+            command=["python3", "-c", _DELETE_SCRIPT],
+            detach=True,
+            volumes={LIBRARY_VOLUME_NAME: {"bind": _MOUNT_PATH, "mode": "rw"}},
+            environment={"CACHE_FOLDER": _cache_folder(spec.repo_id)},
+        )
         try:
-            client.volumes.get(spec.volume_name).remove(force=True)
-        except NotFound:
-            pass
+            container.wait(timeout=60)
+        finally:
+            container.remove(force=True)
 
     updated_spec = spec.model_copy(
         update={
-            "volume_name": None,
             "library_status": LibraryStatus.NOT_DOWNLOADED,
             "library_progress_percent": None,
             "library_error": None,

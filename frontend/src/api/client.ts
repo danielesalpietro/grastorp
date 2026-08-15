@@ -103,7 +103,6 @@ export interface ModelTemplateSpec {
   num_shards: number | null;
   context_length: number | null;
   quantization: string | null;
-  volume_name: string | null;
   library_status: LibraryStatus;
   library_progress_percent: number | null;
   library_error: string | null;
@@ -145,6 +144,30 @@ export interface TemplateFromHFRequest {
   name?: string;
   description?: string;
   enabled?: boolean;
+}
+
+export type DatastoreType = "local" | "iscsi" | "nfs";
+
+export interface Datastore {
+  id: string;
+  name: string;
+  type: DatastoreType;
+  nfs_server: string | null;
+  nfs_export_path: string | null;
+  nfs_options: string;
+  created_at: string;
+}
+
+export interface DatastoreCreateRequest {
+  name: string;
+  type: DatastoreType;
+  nfs_server?: string | null;
+  nfs_export_path?: string | null;
+  nfs_options?: string;
+}
+
+export interface LibraryConfig {
+  datastore_id: string;
 }
 
 const BASE = "/api";
@@ -196,4 +219,11 @@ export const api = {
   updateTemplate: (id: string, payload: TemplateCreateRequest) =>
     request<Template>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteTemplate: (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" }),
+  listDatastores: () => request<Datastore[]>("/storage/datastores"),
+  createDatastore: (payload: DatastoreCreateRequest) =>
+    request<Datastore>("/storage/datastores", { method: "POST", body: JSON.stringify(payload) }),
+  deleteDatastore: (id: string) => request<void>(`/storage/datastores/${id}`, { method: "DELETE" }),
+  getLibraryConfig: () => request<LibraryConfig>("/storage/library/config"),
+  setLibraryConfig: (payload: LibraryConfig) =>
+    request<LibraryConfig>("/storage/library/config", { method: "PUT", body: JSON.stringify(payload) }),
 };

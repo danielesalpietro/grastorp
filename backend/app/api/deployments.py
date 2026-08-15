@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from app.schemas import ComputeMode, Deployment, DeploymentCreateRequest, DeploymentState, LibraryStatus, OffloadConfig
-from app.services import docker_service
+from app.services import docker_service, model_library_service
 from app import store, template_store
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
@@ -46,7 +46,7 @@ def create_deployment(payload: DeploymentCreateRequest) -> Deployment:
         resources=payload.resources,
         network=payload.network,
         state=DeploymentState.STOPPED,
-        library_volume=template.spec.volume_name if library_status is LibraryStatus.READY else None,
+        library_volume=model_library_service.LIBRARY_VOLUME_NAME if library_status is LibraryStatus.READY else None,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     store.save_deployment(deployment)

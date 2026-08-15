@@ -41,7 +41,6 @@ function defaultModelSpec(): ModelTemplateSpec {
     num_shards: null,
     context_length: null,
     quantization: null,
-    volume_name: null,
     library_status: "not_downloaded",
     library_progress_percent: null,
     library_error: null,
