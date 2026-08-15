@@ -5,15 +5,19 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import Template, TemplateCreateRequest, TemplateType
+from app.schemas import Template, TemplateCreateRequest, TemplateFromHFRequest, TemplateType
 from app import template_store
+from app.services import hf_metadata_service
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
 
 @router.get("", response_model=list[Template])
-def list_templates(type_filter: TemplateType | None = Query(default=None, alias="type")) -> list[Template]:
-    return template_store.list_templates(type_filter)
+def list_templates(
+    type_filter: TemplateType | None = Query(default=None, alias="type"),
+    enabled: bool | None = Query(default=None),
+) -> list[Template]:
+    return template_store.list_templates(type_filter, enabled)
 
 
 @router.get("/{template_id}", response_model=Template)
@@ -31,11 +35,52 @@ def create_template(payload: TemplateCreateRequest) -> Template:
         type=payload.type,
         name=payload.name,
         description=payload.description,
+        enabled=payload.enabled,
         spec=payload.spec,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     template_store.save_template(template)
     return template
+
+
+@router.post("/from-hf", response_model=Template, status_code=201)
+def create_template_from_hf(payload: TemplateFromHFRequest) -> Template:
+    """Crea un template modello ricavando le caratteristiche tecniche da Hugging Face Hub."""
+    try:
+        spec = hf_metadata_service.fetch_model_metadata(payload.repo_id)
+    except hf_metadata_service.HFMetadataError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    template = Template(
+        id=str(uuid.uuid4()),
+        type=TemplateType.MODEL,
+        name=payload.name or payload.repo_id,
+        description=payload.description,
+        enabled=payload.enabled,
+        spec=spec,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    template_store.save_template(template)
+    return template
+
+
+@router.post("/{template_id}/sync-hf", response_model=Template)
+def sync_template_from_hf(template_id: str) -> Template:
+    """Aggiorna le caratteristiche tecniche di un template modello rileggendole da Hugging Face Hub."""
+    existing = template_store.get_template(template_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Template non trovato")
+    if existing.type != TemplateType.MODEL:
+        raise HTTPException(status_code=400, detail="Solo i template modello possono essere sincronizzati con HF")
+
+    try:
+        spec = hf_metadata_service.fetch_model_metadata(existing.spec.repo_id)
+    except hf_metadata_service.HFMetadataError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    updated = existing.model_copy(update={"spec": spec})
+    template_store.save_template(updated)
+    return updated
 
 
 @router.put("/{template_id}", response_model=Template)
@@ -49,6 +94,7 @@ def update_template(template_id: str, payload: TemplateCreateRequest) -> Templat
             "type": payload.type,
             "name": payload.name,
             "description": payload.description,
+            "enabled": payload.enabled,
             "spec": payload.spec,
         }
     )

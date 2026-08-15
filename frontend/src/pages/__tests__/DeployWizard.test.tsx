@@ -6,14 +6,26 @@ import { TasksProvider } from "../../context/TasksContext";
 
 vi.mock("../../api/client", () => ({
   api: {
-    listModels: vi.fn().mockResolvedValue([
+    listTemplates: vi.fn().mockResolvedValue([
       {
-        repo_id: "mistralai/Mixtral-8x7B-Instruct-v0.1",
-        display_name: "Mixtral 8x7B Instruct",
-        architecture: "moe",
-        num_experts: 8,
-        params_billion: 46.7,
+        id: "seed-mixtral-8x7b",
+        type: "model",
+        name: "Mixtral 8x7B Instruct",
         description: "",
+        enabled: true,
+        spec: {
+          repo_id: "mistralai/Mixtral-8x7B-Instruct-v0.1",
+          architecture: "mixtral",
+          num_experts: 8,
+          num_experts_active: 2,
+          num_layers: null,
+          params_billion: 46.7,
+          shard_size_gb: null,
+          num_shards: null,
+          context_length: null,
+          quantization: null,
+        },
+        created_at: "2024-01-01T00:00:00+00:00",
       },
     ]),
     listGpus: vi.fn().mockResolvedValue([

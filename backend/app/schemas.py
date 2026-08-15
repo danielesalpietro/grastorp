@@ -140,6 +140,9 @@ class TemplateType(str, Enum):
 class ModelTemplateSpec(BaseModel):
     """Caratteristiche tecniche di un modello (MoE o dense)."""
 
+    model_config = ConfigDict(protected_namespaces=())
+
+    repo_id: str
     architecture: str
     num_experts: int | None = None
     num_experts_active: int | None = None
@@ -169,6 +172,7 @@ class TemplateCreateRequest(BaseModel):
     type: TemplateType
     name: str
     description: str = ""
+    enabled: bool = True
     spec: ModelTemplateSpec | DockerRegistryTemplateSpec
 
     @model_validator(mode="after")
@@ -184,6 +188,7 @@ class Template(BaseModel):
     type: TemplateType
     name: str
     description: str = ""
+    enabled: bool = True
     spec: ModelTemplateSpec | DockerRegistryTemplateSpec
     created_at: str
 
@@ -193,3 +198,14 @@ class Template(BaseModel):
         if not isinstance(self.spec, expected):
             raise ValueError(f"spec non compatibile con type={self.type.value}")
         return self
+
+
+class TemplateFromHFRequest(BaseModel):
+    """Crea un template modello interrogando Hugging Face Hub per le caratteristiche tecniche."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    repo_id: str
+    name: str | None = None
+    description: str = ""
+    enabled: bool = True
