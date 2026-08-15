@@ -6,6 +6,17 @@ e il progetto aderisce a [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
+### Added
+
+- Persistenza dei deployment su SQLite (`backend/app/store.py`), al posto
+  di uno store in memoria: i dati sopravvivono al riavvio del container.
+  Ogni deployment è salvato come riga con il JSON del modello Pydantic,
+  per evitare uno schema SQL parallelo mentre `ResourceConfig`/
+  `NetworkConfig` sono ancora in evoluzione.
+- Volume Docker dedicato (`grastorp-data`, montato su `/app/data`) nel
+  `docker-compose.yml`; path del database configurabile via
+  `GRASTORP_DB_PATH`.
+
 ## [0.1.0] - 2026-08-14
 
 Primo rilascio: scaffold funzionante di backend e frontend.

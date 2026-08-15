@@ -6,6 +6,8 @@ services:
     volumes:
       # Necessario per gestire i container dei modelli sull'host Docker.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Persistenza dei deployment (SQLite) tra riavvii del container.
+      - grastorp-data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
     # Richiede l'NVIDIA Container Toolkit installato sull'host: senza,
@@ -27,3 +29,6 @@ services:
       - VITE_API_PROXY_TARGET=http://backend:8080
     depends_on:
       - backend
+
+volumes:
+  grastorp-data:
