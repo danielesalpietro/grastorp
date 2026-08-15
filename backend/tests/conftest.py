@@ -6,10 +6,9 @@ from app.main import app
 
 
 @pytest.fixture(autouse=True)
-def _clear_store():
-    store._deployments.clear()
-    yield
-    store._deployments.clear()
+def _isolated_db(tmp_path, monkeypatch):
+    """Ogni test scrive su un file SQLite temporaneo e isolato."""
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "test.db")
 
 
 @pytest.fixture(autouse=True)

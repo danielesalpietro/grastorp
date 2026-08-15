@@ -22,6 +22,7 @@ passi — utile a chi riprende il lavoro in un secondo momento.
 | Storage / cache modelli              | 🚧 stub |
 | Rilevamento NIC host                 | 🚧 stub |
 | Test automatici + CI                 | ✅ pytest (backend), vitest+RTL (frontend), GitHub Actions |
+| Persistenza deployment (SQLite)      | ✅ funzionante, dati su volume Docker |
 
 ## Decisioni tecniche
 
@@ -55,6 +56,16 @@ passi — utile a chi riprende il lavoro in un secondo momento.
   senza dipendenze hardware. Il job `docker-build` in CI fa solo `docker
   build` delle immagini (non `up`), perché il `docker-compose.yml`
   richiede una GPU reservation che i runner GitHub-hosted non hanno.
+- **Persistenza**: SQLite via il modulo `sqlite3` della stdlib, non
+  SQLAlchemy/SQLModel — ogni deployment è una riga con il JSON del
+  modello Pydantic in una colonna, invece di uno schema SQL a colonne
+  separate. Scelta deliberata mentre `ResourceConfig`/`NetworkConfig`
+  cambiano ancora spesso: evita migrazioni ad ogni campo aggiunto, al
+  costo di non poter fare query SQL sui singoli campi (accettabile per i
+  volumi in gioco). Una connessione sqlite3 per operazione (non
+  condivisa tra thread) perché le route sono handler sync eseguiti nel
+  threadpool di FastAPI. Verificato con un riavvio reale del processo
+  (non solo mock) che i dati sopravvivono.
 
 ## Prossimi passi
 
@@ -68,6 +79,16 @@ passi — utile a chi riprende il lavoro in un secondo momento.
 6. Storage/cache dei pesi dei modelli scaricati.
 
 ## Log
+
+### 2026-08-14 — Persistenza SQLite
+
+Sostituito lo store in-memory (`dict` a livello di modulo, perso ad ogni
+riavvio) con SQLite (`backend/app/store.py`), su volume Docker dedicato.
+Nessuna modifica al layer API: `store.py` espone le stesse funzioni di
+prima, solo l'implementazione cambia. Aggiunto test di regressione che
+verifica con una connessione sqlite3 indipendente che i dati finiscano
+davvero su file, e uno smoke test manuale con riavvio reale del processo
+uvicorn.
 
 ### 2026-08-14 — Test automatici e CI
 
