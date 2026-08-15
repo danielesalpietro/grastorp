@@ -5,7 +5,7 @@ Diario tecnico di avanzamento del progetto. A differenza del
 traccia di decisioni architetturali, stato dei singoli componenti e prossimi
 passi — utile a chi riprende il lavoro in un secondo momento.
 
-## Stato attuale (2026-08-14, v0.1.0)
+## Stato attuale (2026-08-15)
 
 | Componente                          | Stato |
 |--------------------------------------|-------|
@@ -16,15 +16,44 @@ passi — utile a chi riprende il lavoro in un secondo momento.
 | Host → Monitor (metriche)            | 🚧 stub |
 | GPU (rilevamento nvidia-smi)         | ✅ funzionante (1→N schede) |
 | Deployments (wizard + gestione)      | ✅ funzionante per vLLM |
+| Networking → reti Docker             | ✅ funzionante (vSwitch/port group ≈ rete Docker) |
+| Networking → NIC fisiche host        | 🚧 stub |
+| Security → Security Profile host     | ✅ funzionante (rootless, seccomp/AppArmor, live restore) |
+| Security → postura per deployment    | ✅ funzionante (capability, rootfs, utente, porte) |
 | Framework TGI / llama.cpp            | 🚧 stub |
 | WebUI (Open WebUI, ecc.)             | 🚧 stub |
 | Catalogo modelli HF                  | 🚧 statico, non collegato all'API reale |
 | Storage / cache modelli              | 🚧 stub |
-| Rilevamento NIC host                 | 🚧 stub |
 | Test automatici + CI                 | ✅ pytest (backend), vitest+RTL (frontend), GitHub Actions |
 
 ## Decisioni tecniche
 
+- **Mapping Networking/Security ESXi → Docker**: seguendo lo stile
+  "console di gestione hypervisor" del progetto, le sezioni Networking e
+  Security ricalcano concetti ESXi mappandoli su ciò che Docker offre
+  realmente, invece di reimplementare funzionalità che Docker non ha:
+  - *vSwitch + port group* → **rete Docker** (`client.networks.list()`):
+    ogni rete Docker raggruppa i container collegati (come un port group
+    raggruppa le VM) e ha un proprio subnet/gateway (come una VMkernel
+    network). Esposta in `GET /api/system/networks`.
+  - *uplink fisico del vSwitch* → **NIC fisica dell'host**: resta
+    volutamente uno stub separato (`GET /api/system/nics`), perché
+    richiede accesso privilegiato al network namespace dell'host che oggi
+    Grastorp non ha.
+  - *Security Profile / Lockdown Mode dell'host* → **Security Profile del
+    docker daemon** (`client.info()["SecurityOptions"]`): rootless mode
+    (equivalente concettuale del Lockdown Mode: il daemon non gira come
+    root sull'host) e meccanismi di isolamento attivi (seccomp,
+    AppArmor/SELinux). Esposto in `GET /api/security/host`.
+  - *impostazioni di sicurezza per-VM* → **postura di sicurezza per
+    container**: `Privileged`, `ReadonlyRootfs`, `User`, `CapAdd`/
+    `CapDrop`, `SecurityOpt` e porte pubblicate lette da
+    `container.attrs` via Docker SDK. Esposto in
+    `GET /api/security/deployments`.
+  - Non mappato (non esiste un equivalente Docker diretto e non è nello
+    scope attuale): firewall per-servizio con range IP consentiti,
+    certificati host, utenti/ruoli/permessi granulari — chi accede al
+    socket Docker ha di fatto accesso equivalente a root sull'host.
 - **Orchestrazione**: un singolo host Docker (via socket montato), non
   Kubernetes — scelta per semplicità nella fase iniziale. Da rivalutare se
   emerge la necessità di più host.
@@ -62,12 +91,29 @@ passi — utile a chi riprende il lavoro in un secondo momento.
    ([#1](https://github.com/danielesalpietro/grastorp/issues/1)).
 2. Collegare la ricerca modelli all'Hugging Face Hub API reale (oggi
    catalogo statico in `hf_service.py`).
-3. Rilevamento reale delle interfacce di rete dell'host.
+3. Rilevamento reale delle interfacce di rete fisiche dell'host (NIC).
 4. Framework di inferenza alternativi (TGI, llama.cpp).
 5. Metriche di monitoraggio host e per-deployment; console/log streaming.
 6. Storage/cache dei pesi dei modelli scaricati.
+7. Wizard di deploy: permettere di scegliere la rete Docker a cui
+   collegare il deployment (oggi la rete è sempre quella di default) e di
+   impostare `cap_drop`/`read_only`/`security_opt` dalla UI invece che
+   solo mostrarli in sola lettura.
 
 ## Log
+
+### 2026-08-15 — Networking (reti Docker) e Security
+
+Aggiunta la sezione **Security** al Navigator e ampliata **Networking**,
+mappando la struttura di ESXi su ciò che Docker offre davvero (dettaglio
+del mapping in "Decisioni tecniche" sopra). Backend: `docker_service.
+list_networks/get_host_security_info/get_container_security`, nuovi
+schemi `DockerNetwork`/`HostSecurityProfile`/`ContainerSecurity`, nuovo
+router `app/api/security.py` ed endpoint `GET /api/system/networks`.
+Frontend: tabella reti Docker in `Networking.tsx` (NIC fisiche restano
+stub, ora in una sezione separata della stessa pagina) e nuova pagina
+`Security.tsx` con Security Profile host + postura per deployment. Test
+pytest e vitest aggiunti per tutti i nuovi percorsi.
 
 ### 2026-08-14 — Test automatici e CI
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from app.schemas import Framework, GPUDevice, HostInfo, NICDevice, WebUI
+from app.schemas import DockerNetwork, Framework, GPUDevice, HostInfo, NICDevice, WebUI
 from app.services import docker_service, gpu_service
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -23,6 +23,15 @@ def list_gpus() -> list[GPUDevice]:
 def list_nics() -> list[NICDevice]:
     """Stub: rilevamento NIC dell'host non ancora implementato."""
     return gpu_service.list_nics()
+
+
+@router.get("/networks", response_model=list[DockerNetwork])
+def list_networks() -> list[DockerNetwork]:
+    """Reti Docker dell'host, l'equivalente dei vSwitch/port group in ESXi."""
+    try:
+        return [DockerNetwork(**n) for n in docker_service.list_networks()]
+    except docker_service.DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker daemon non raggiungibile: {exc}") from exc
 
 
 @router.get("/frameworks")

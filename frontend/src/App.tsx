@@ -5,6 +5,7 @@ import { DeployWizard } from "./pages/DeployWizard";
 import { ModelConfiguration } from "./pages/ModelConfiguration";
 import { Storage } from "./pages/Storage";
 import { Networking } from "./pages/Networking";
+import { Security } from "./pages/Security";
 import { Gpu } from "./pages/Gpu";
 import { HostManage } from "./pages/host/HostManage";
 import { HostMonitor } from "./pages/host/HostMonitor";
@@ -21,6 +22,7 @@ export function App() {
         <Route path="/deployments/:id" element={<ModelConfiguration />} />
         <Route path="/storage" element={<Storage />} />
         <Route path="/networking" element={<Networking />} />
+        <Route path="/security" element={<Security />} />
         <Route path="/gpu" element={<Gpu />} />
       </Route>
     </Routes>

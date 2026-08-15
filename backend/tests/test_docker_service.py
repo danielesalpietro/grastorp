@@ -1,3 +1,5 @@
+from docker.errors import NotFound
+
 from app.schemas import (
     ComputeMode,
     Deployment,
@@ -97,3 +99,133 @@ def test_start_container_cpu_mode_requests_no_gpu_devices(monkeypatch):
     docker_service.start_container(deployment)
 
     assert fake_client.containers.run_kwargs["device_requests"] is None
+
+
+class _FakeNetwork:
+    def __init__(self, attrs: dict):
+        self.attrs = attrs
+
+
+class _FakeNetworksApi:
+    def __init__(self, networks: list[_FakeNetwork]):
+        self._networks = networks
+
+    def list(self):
+        return self._networks
+
+
+def test_list_networks_maps_driver_subnet_and_containers(monkeypatch):
+    fake_network = _FakeNetwork(
+        {
+            "Id": "abcdef0123456789",
+            "Name": "grastorp_default",
+            "Driver": "bridge",
+            "Scope": "local",
+            "Internal": False,
+            "Attachable": True,
+            "IPAM": {"Config": [{"Subnet": "172.20.0.0/16", "Gateway": "172.20.0.1"}]},
+            "Containers": {"c1": {"Name": "grastorp-dep-1"}},
+        }
+    )
+    fake_client = _FakeClient()
+    fake_client.networks = _FakeNetworksApi([fake_network])
+    monkeypatch.setattr(docker_service, "_get_client", lambda: fake_client)
+
+    networks = docker_service.list_networks()
+
+    assert networks == [
+        {
+            "id": "abcdef012345",
+            "name": "grastorp_default",
+            "driver": "bridge",
+            "scope": "local",
+            "subnet": "172.20.0.0/16",
+            "gateway": "172.20.0.1",
+            "internal": False,
+            "attachable": True,
+            "containers": ["grastorp-dep-1"],
+        }
+    ]
+
+
+def test_get_host_security_info_detects_rootless_and_security_options(monkeypatch):
+    fake_client = _FakeClient()
+    fake_client.info = lambda: {
+        "SecurityOptions": ["name=seccomp,profile=default", "name=rootless"],
+        "ExperimentalBuild": False,
+        "LiveRestoreEnabled": True,
+    }
+    monkeypatch.setattr(docker_service, "_get_client", lambda: fake_client)
+
+    info = docker_service.get_host_security_info()
+
+    assert info["rootless"] is True
+    assert info["security_options"] == ["name=seccomp,profile=default", "name=rootless"]
+    assert info["live_restore_enabled"] is True
+
+
+def test_get_host_security_info_not_rootless_by_default(monkeypatch):
+    fake_client = _FakeClient()
+    fake_client.info = lambda: {"SecurityOptions": ["name=seccomp,profile=default", "name=apparmor"]}
+    monkeypatch.setattr(docker_service, "_get_client", lambda: fake_client)
+
+    info = docker_service.get_host_security_info()
+
+    assert info["rootless"] is False
+
+
+class _FakeSecurityContainer:
+    def __init__(self, attrs: dict):
+        self.attrs = attrs
+
+
+class _FakeContainersWithGet(_FakeContainers):
+    def __init__(self, container: _FakeSecurityContainer | None):
+        super().__init__()
+        self._container = container
+
+    def get(self, container_id: str):
+        if self._container is None:
+            raise NotFound("not found")
+        return self._container
+
+
+def test_get_container_security_maps_capabilities_and_published_ports(monkeypatch):
+    container = _FakeSecurityContainer(
+        {
+            "HostConfig": {
+                "Privileged": False,
+                "ReadonlyRootfs": True,
+                "CapAdd": ["NET_ADMIN"],
+                "CapDrop": ["ALL"],
+                "SecurityOpt": ["no-new-privileges"],
+            },
+            "Config": {"User": "1000:1000"},
+            "NetworkSettings": {
+                "Ports": {"8000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "8000"}]}
+            },
+        }
+    )
+    fake_client = _FakeClient()
+    fake_client.containers = _FakeContainersWithGet(container)
+    monkeypatch.setattr(docker_service, "_get_client", lambda: fake_client)
+
+    security = docker_service.get_container_security("container-xyz")
+
+    assert security == {
+        "privileged": False,
+        "read_only_rootfs": True,
+        "user": "1000:1000",
+        "cap_add": ["NET_ADMIN"],
+        "cap_drop": ["ALL"],
+        "security_opt": ["no-new-privileges"],
+        "published_ports": ["0.0.0.0:8000->8000/tcp"],
+    }
+
+
+def test_get_container_security_returns_none_when_container_not_found(monkeypatch):
+    fake_client = _FakeClient()
+    fake_client.containers = _FakeContainersWithGet(None)
+    monkeypatch.setattr(docker_service, "_get_client", lambda: fake_client)
+
+    assert docker_service.get_container_security("missing") is None

@@ -105,6 +105,86 @@ def docker_available() -> bool:
         return False
 
 
+def list_networks() -> list[dict]:
+    """Reti Docker (bridge/overlay/macvlan/...), l'equivalente dei vSwitch ESXi.
+
+    Ogni rete Docker è concettualmente un vSwitch + port group: raggruppa i
+    container collegati e definisce un proprio subnet/gateway.
+    """
+
+    client = _get_client()
+    networks = []
+    for net in client.networks.list():
+        attrs = net.attrs
+        ipam_configs = (attrs.get("IPAM") or {}).get("Config") or []
+        subnet = ipam_configs[0].get("Subnet") if ipam_configs else None
+        gateway = ipam_configs[0].get("Gateway") if ipam_configs else None
+        containers = [
+            c.get("Name") for c in (attrs.get("Containers") or {}).values() if c.get("Name")
+        ]
+        networks.append(
+            {
+                "id": (attrs.get("Id") or "")[:12],
+                "name": attrs.get("Name"),
+                "driver": attrs.get("Driver"),
+                "scope": attrs.get("Scope"),
+                "subnet": subnet,
+                "gateway": gateway,
+                "internal": attrs.get("Internal", False),
+                "attachable": attrs.get("Attachable", False),
+                "containers": containers,
+            }
+        )
+    return networks
+
+
+def get_host_security_info() -> dict:
+    """Postura di sicurezza del docker daemon: l'equivalente del Security Profile ESXi."""
+
+    client = _get_client()
+    info = client.info()
+    security_options = info.get("SecurityOptions") or []
+    rootless = any(opt.startswith("name=rootless") for opt in security_options)
+
+    return {
+        "rootless": rootless,
+        "security_options": security_options,
+        "experimental": info.get("ExperimentalBuild", False),
+        "live_restore_enabled": info.get("LiveRestoreEnabled", False),
+    }
+
+
+def get_container_security(container_id: str) -> dict | None:
+    """Postura di sicurezza di un container: capability, seccomp/AppArmor, rootfs, porte."""
+
+    client = _get_client()
+    try:
+        container = client.containers.get(container_id)
+    except NotFound:
+        return None
+
+    host_config = container.attrs.get("HostConfig", {})
+    config = container.attrs.get("Config", {})
+    port_bindings = container.attrs.get("NetworkSettings", {}).get("Ports") or {}
+
+    published_ports = []
+    for container_port, bindings in port_bindings.items():
+        for binding in bindings or []:
+            host_ip = binding.get("HostIp") or "0.0.0.0"
+            host_port = binding.get("HostPort")
+            published_ports.append(f"{host_ip}:{host_port}->{container_port}")
+
+    return {
+        "privileged": host_config.get("Privileged", False),
+        "read_only_rootfs": host_config.get("ReadonlyRootfs", False),
+        "user": config.get("User") or None,
+        "cap_add": host_config.get("CapAdd") or [],
+        "cap_drop": host_config.get("CapDrop") or [],
+        "security_opt": host_config.get("SecurityOpt") or [],
+        "published_ports": published_ports,
+    }
+
+
 def get_host_info() -> dict:
     """Info sul docker daemon e sull'host che lo esegue.
 

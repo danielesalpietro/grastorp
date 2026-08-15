@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import deployments, models, system
+from app.api import deployments, models, security, system
 from app.services import docker_service
 
 app = FastAPI(title="Grastorp", description="Hypervisor per Mixture-of-Experts")
@@ -16,6 +16,7 @@ app.add_middleware(
 app.include_router(deployments.router)
 app.include_router(models.router)
 app.include_router(system.router)
+app.include_router(security.router)
 
 
 @app.get("/api/health")

@@ -34,6 +34,14 @@ virtuali.
   opzionale.
 - **Gestione container**: avvio e arresto dei deployment tramite Docker SDK,
   sullo stesso host Docker su cui gira Grastorp.
+- **Networking**: elenco delle reti Docker dell'host (driver, scope,
+  subnet/gateway, container collegati) — l'equivalente dei vSwitch/port
+  group di ESXi.
+- **Security**: Security Profile del docker daemon (rootless, seccomp/
+  AppArmor/SELinux, live restore) e postura di sicurezza per deployment
+  (privileged, rootfs read-only, capability, porte pubblicate) —
+  l'equivalente del Security Profile host e delle impostazioni di
+  sicurezza per-VM di ESXi.
 
 ## Stato del progetto
 
@@ -43,12 +51,15 @@ Funzionante oggi:
 - Deploy con framework **vLLM**, in modalità GPU (una o più schede, con
   CPU offload opzionale) o CPU Only.
 - Gestione risorse (CPU, RAM, GPU) e rete (IP/porta) per ogni deployment.
+- Networking: reti Docker reali dell'host. Security: Security Profile del
+  docker daemon e postura di sicurezza (capability, rootfs, porte) per
+  ogni deployment.
 
 Ancora stub (segnaposto in UI, non funzionanti):
 
 - Framework di inferenza alternativi (TGI, llama.cpp).
 - WebUI opzionali affiancate all'API (Open WebUI, ecc.).
-- Rilevamento delle interfacce di rete dell'host.
+- Rilevamento delle interfacce di rete fisiche (NIC) dell'host.
 - Storage/cache dei pesi dei modelli.
 - Metriche di monitoraggio (host e per-deployment) e console/log streaming.
 - Ricerca modelli collegata all'Hugging Face Hub reale (oggi è un elenco
