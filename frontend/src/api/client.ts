@@ -30,6 +30,38 @@ export interface NICDevice {
   address: string | null;
 }
 
+export interface DockerNetwork {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  subnet: string | null;
+  gateway: string | null;
+  internal: boolean;
+  attachable: boolean;
+  containers: string[];
+}
+
+export interface HostSecurityProfile {
+  rootless: boolean;
+  security_options: string[];
+  experimental: boolean;
+  live_restore_enabled: boolean;
+}
+
+export interface ContainerSecurity {
+  deployment_id: string;
+  deployment_name: string;
+  container_id: string | null;
+  privileged: boolean;
+  read_only_rootfs: boolean;
+  user: string | null;
+  cap_add: string[];
+  cap_drop: string[];
+  security_opt: string[];
+  published_ports: string[];
+}
+
 export interface HostInfo {
   hostname: string | null;
   operating_system: string | null;
@@ -119,6 +151,9 @@ export const api = {
   getHostInfo: () => request<HostInfo>("/system/host"),
   listGpus: () => request<GPUDevice[]>("/system/gpus"),
   listNics: () => request<NICDevice[]>("/system/nics"),
+  listNetworks: () => request<DockerNetwork[]>("/system/networks"),
+  getHostSecurity: () => request<HostSecurityProfile>("/security/host"),
+  listDeploymentSecurity: () => request<ContainerSecurity[]>("/security/deployments"),
   listFrameworks: () => request<OptionEntry[]>("/system/frameworks"),
   listWebuis: () => request<OptionEntry[]>("/system/webuis"),
   listDeployments: () => request<Deployment[]>("/deployments"),

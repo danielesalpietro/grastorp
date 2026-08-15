@@ -57,3 +57,37 @@ def test_get_host_info_503_when_docker_unavailable(client, monkeypatch):
 
     resp = client.get("/api/system/host")
     assert resp.status_code == 503
+
+
+def test_list_networks_returns_docker_networks(client, monkeypatch):
+    monkeypatch.setattr(
+        docker_service,
+        "list_networks",
+        lambda: [
+            {
+                "id": "abc123",
+                "name": "grastorp_default",
+                "driver": "bridge",
+                "scope": "local",
+                "subnet": "172.20.0.0/16",
+                "gateway": "172.20.0.1",
+                "internal": False,
+                "attachable": True,
+                "containers": ["grastorp-dep-1"],
+            }
+        ],
+    )
+
+    resp = client.get("/api/system/networks")
+    assert resp.status_code == 200
+    assert resp.json()[0]["driver"] == "bridge"
+
+
+def test_list_networks_503_when_docker_unavailable(client, monkeypatch):
+    def _raise():
+        raise docker_service.DockerException("boom")
+
+    monkeypatch.setattr(docker_service, "list_networks", _raise)
+
+    resp = client.get("/api/system/networks")
+    assert resp.status_code == 503

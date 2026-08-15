@@ -27,6 +27,9 @@ export function Sidebar() {
         <NavLink to="/networking" className={linkClass}>
           Networking
         </NavLink>
+        <NavLink to="/security" className={linkClass}>
+          Security
+        </NavLink>
         <NavLink to="/gpu" className={linkClass}>
           GPU
         </NavLink>

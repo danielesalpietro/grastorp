@@ -86,6 +86,58 @@ class NICDevice(BaseModel):
     address: str | None = None
 
 
+class DockerNetwork(BaseModel):
+    """Rete Docker (bridge/overlay/macvlan/...): l'equivalente di un vSwitch + port group ESXi.
+
+    Ogni rete Docker raggruppa i container che vi sono collegati (come un
+    port group raggruppa le VM su un vSwitch) e ha un proprio subnet/gateway
+    (come una VMkernel network).
+    """
+
+    id: str
+    name: str
+    driver: str
+    scope: str
+    subnet: str | None = None
+    gateway: str | None = None
+    internal: bool = False
+    attachable: bool = False
+    containers: list[str] = Field(default_factory=list)
+
+
+class HostSecurityProfile(BaseModel):
+    """Postura di sicurezza del docker daemon: l'equivalente del Security Profile dell'host ESXi.
+
+    `rootless` corrisponde concettualmente al Lockdown Mode di ESXi (il
+    daemon non gira come root sull'host); `security_options` elenca i
+    meccanismi di isolamento attivi (seccomp, AppArmor/SELinux) come il
+    profilo di accettazione immagine ESXi elenca i controlli attivi sul VIB.
+    """
+
+    rootless: bool = False
+    security_options: list[str] = Field(default_factory=list)
+    experimental: bool = False
+    live_restore_enabled: bool = False
+
+
+class ContainerSecurity(BaseModel):
+    """Postura di sicurezza di un deployment/container: l'equivalente delle
+    impostazioni di sicurezza di una singola VM in ESXi (policy di rete,
+    permessi del dispositivo, ecc.), qui espresse coi meccanismi Docker
+    (capability, seccomp/AppArmor, privileged, rootfs, porte pubblicate)."""
+
+    deployment_id: str
+    deployment_name: str
+    container_id: str | None = None
+    privileged: bool = False
+    read_only_rootfs: bool = False
+    user: str | None = None
+    cap_add: list[str] = Field(default_factory=list)
+    cap_drop: list[str] = Field(default_factory=list)
+    security_opt: list[str] = Field(default_factory=list)
+    published_ports: list[str] = Field(default_factory=list)
+
+
 class OffloadConfig(BaseModel):
     enabled: bool = False
     cpu_offload_gb: float = Field(default=0, ge=0)

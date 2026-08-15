@@ -6,6 +6,20 @@ e il progetto aderisce a [Semantic Versioning](https://semver.org/lang/it/).
 
 ## [Unreleased]
 
+### Added
+
+- Sezione **Networking** estesa con l'elenco reale delle reti Docker
+  dell'host (`GET /api/system/networks`) — nome, driver, scope,
+  subnet/gateway, attachable, container collegati — l'equivalente dei
+  vSwitch/port group di ESXi.
+- Nuova sezione **Security** in Navigator: Security Profile del docker
+  daemon (rootless, meccanismi seccomp/AppArmor/SELinux attivi, live
+  restore) e postura di sicurezza per deployment (privileged, rootfs
+  read-only, utente, capability aggiunte/rimosse, security opt, porte
+  pubblicate) — l'equivalente del Security Profile host e delle
+  impostazioni di sicurezza per-VM di ESXi. Nuovi endpoint
+  `GET /api/security/host` e `GET /api/security/deployments`.
+
 ## [0.1.0] - 2026-08-14
 
 Primo rilascio: scaffold funzionante di backend e frontend.
