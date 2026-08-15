@@ -94,6 +94,7 @@ export type LibraryStatus = "not_downloaded" | "downloading" | "ready" | "error"
 
 export interface ModelTemplateSpec {
   repo_id: string;
+  registry_id: string;
   architecture: string;
   num_experts: number | null;
   num_experts_active: number | null;
@@ -139,11 +140,39 @@ export interface TemplateCreateRequest {
   spec: ModelTemplateSpec | DockerRegistryTemplateSpec;
 }
 
-export interface TemplateFromHFRequest {
+export interface TemplateFromRegistryRequest {
+  registry_id: string;
   repo_id: string;
   name?: string;
   description?: string;
   enabled?: boolean;
+}
+
+export type RegistryProvider = "huggingface" | "custom";
+
+export interface ModelRegistry {
+  id: string;
+  name: string;
+  provider: RegistryProvider;
+  base_url: string;
+  api_key: string | null;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface ModelRegistryCreateRequest {
+  name: string;
+  provider: RegistryProvider;
+  base_url?: string | null;
+  api_key?: string | null;
+  enabled?: boolean;
+}
+
+export interface RegistryModelResult {
+  repo_id: string;
+  downloads: number | null;
+  likes: number | null;
+  pipeline_tag: string | null;
 }
 
 export type DatastoreType = "local" | "iscsi" | "nfs";
@@ -209,9 +238,9 @@ export const api = {
   getTemplate: (id: string) => request<Template>(`/templates/${id}`),
   createTemplate: (payload: TemplateCreateRequest) =>
     request<Template>("/templates", { method: "POST", body: JSON.stringify(payload) }),
-  createTemplateFromHF: (payload: TemplateFromHFRequest) =>
-    request<Template>("/templates/from-hf", { method: "POST", body: JSON.stringify(payload) }),
-  syncTemplateFromHF: (id: string) => request<Template>(`/templates/${id}/sync-hf`, { method: "POST" }),
+  createTemplateFromRegistry: (payload: TemplateFromRegistryRequest) =>
+    request<Template>("/templates/from-registry", { method: "POST", body: JSON.stringify(payload) }),
+  syncTemplateFromRegistry: (id: string) => request<Template>(`/templates/${id}/sync-registry`, { method: "POST" }),
   downloadToLibrary: (id: string) => request<Template>(`/templates/${id}/library/download`, { method: "POST" }),
   getLibraryStatus: (id: string) => request<Template>(`/templates/${id}/library`),
   verifyLibrary: (id: string) => request<Template>(`/templates/${id}/library/verify`, { method: "POST" }),
@@ -226,4 +255,12 @@ export const api = {
   getLibraryConfig: () => request<LibraryConfig>("/storage/library/config"),
   setLibraryConfig: (payload: LibraryConfig) =>
     request<LibraryConfig>("/storage/library/config", { method: "PUT", body: JSON.stringify(payload) }),
+  listRegistries: () => request<ModelRegistry[]>("/registries"),
+  createRegistry: (payload: ModelRegistryCreateRequest) =>
+    request<ModelRegistry>("/registries", { method: "POST", body: JSON.stringify(payload) }),
+  updateRegistry: (id: string, payload: ModelRegistryCreateRequest) =>
+    request<ModelRegistry>(`/registries/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteRegistry: (id: string) => request<void>(`/registries/${id}`, { method: "DELETE" }),
+  searchRegistryModels: (id: string, q: string) =>
+    request<RegistryModelResult[]>(`/registries/${id}/search?q=${encodeURIComponent(q)}`),
 };

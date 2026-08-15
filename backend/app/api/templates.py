@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import Template, TemplateCreateRequest, TemplateFromHFRequest, TemplateType
-from app import template_store
+from app.schemas import Template, TemplateCreateRequest, TemplateFromRegistryRequest, TemplateType
+from app import registry_store, template_store
 from app.services import hf_metadata_service, model_library_service
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
@@ -43,11 +43,22 @@ def create_template(payload: TemplateCreateRequest) -> Template:
     return template
 
 
-@router.post("/from-hf", response_model=Template, status_code=201)
-def create_template_from_hf(payload: TemplateFromHFRequest) -> Template:
-    """Crea un template modello ricavando le caratteristiche tecniche da Hugging Face Hub."""
+def _get_enabled_registry_or_404(registry_id: str):
+    registry = registry_store.get_registry(registry_id)
+    if registry is None:
+        raise HTTPException(status_code=404, detail="Registry non trovato")
+    if not registry.enabled:
+        raise HTTPException(status_code=400, detail="Registry disabilitato")
+    return registry
+
+
+@router.post("/from-registry", response_model=Template, status_code=201)
+def create_template_from_registry(payload: TemplateFromRegistryRequest) -> Template:
+    """Crea un template modello ricavando le caratteristiche tecniche da un registry."""
+    registry = _get_enabled_registry_or_404(payload.registry_id)
+
     try:
-        spec = hf_metadata_service.fetch_model_metadata(payload.repo_id)
+        spec = hf_metadata_service.fetch_model_metadata(registry, payload.repo_id)
     except hf_metadata_service.HFMetadataError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -64,17 +75,19 @@ def create_template_from_hf(payload: TemplateFromHFRequest) -> Template:
     return template
 
 
-@router.post("/{template_id}/sync-hf", response_model=Template)
-def sync_template_from_hf(template_id: str) -> Template:
-    """Aggiorna le caratteristiche tecniche di un template modello rileggendole da Hugging Face Hub."""
+@router.post("/{template_id}/sync-registry", response_model=Template)
+def sync_template_from_registry(template_id: str) -> Template:
+    """Aggiorna le caratteristiche tecniche di un template modello rileggendole dal suo registry."""
     existing = template_store.get_template(template_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Template non trovato")
     if existing.type != TemplateType.MODEL:
-        raise HTTPException(status_code=400, detail="Solo i template modello possono essere sincronizzati con HF")
+        raise HTTPException(status_code=400, detail="Solo i template modello possono essere sincronizzati")
+
+    registry = _get_enabled_registry_or_404(existing.spec.registry_id)
 
     try:
-        spec = hf_metadata_service.fetch_model_metadata(existing.spec.repo_id)
+        spec = hf_metadata_service.fetch_model_metadata(registry, existing.spec.repo_id)
     except hf_metadata_service.HFMetadataError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

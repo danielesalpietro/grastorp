@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import datastore_store, library_config_store, store, template_store
+from app import datastore_store, library_config_store, registry_store, store, template_store
 from app.main import app
 
 
@@ -24,6 +24,11 @@ def _isolate_datastore_store(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolate_library_config_store(tmp_path, monkeypatch):
     monkeypatch.setattr(library_config_store, "LIBRARY_CONFIG_FILE", tmp_path / "library_config.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_registry_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry_store, "REGISTRIES_FILE", tmp_path / "registries.json")
 
 
 @pytest.fixture

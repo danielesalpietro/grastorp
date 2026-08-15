@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 import docker
 from docker.errors import DockerException, NotFound
 
-from app import datastore_store, library_config_store, template_store
+from app import datastore_store, library_config_store, registry_store, template_store
 from app.schemas import DatastoreType, LibraryStatus, ModelTemplateSpec, Template, TemplateType
 from app.services import hf_metadata_service
 
@@ -246,14 +246,18 @@ def get_status(template: Template) -> Template:
 
 
 def verify_library(template: Template) -> Template:
-    """Verifica che i file .safetensors del modello nella Library corrispondano (nome e size) a quelli attesi da HF."""
+    """Verifica che i file .safetensors del modello nella Library corrispondano (nome e size) a quelli attesi dal registry."""
     spec = _model_spec(template)
     if spec.library_status is LibraryStatus.NOT_DOWNLOADED:
         raise ModelLibraryError("Nessun download in corso o completato per questo template")
 
-    expected = hf_metadata_service.list_safetensor_files(spec.repo_id)
+    registry = registry_store.get_registry(spec.registry_id)
+    if registry is None:
+        raise ModelLibraryError(f"Registry '{spec.registry_id}' non trovato")
+
+    expected = hf_metadata_service.list_safetensor_files(registry, spec.repo_id)
     if not expected:
-        raise ModelLibraryError("Impossibile ottenere l'elenco file di riferimento da Hugging Face per la verifica")
+        raise ModelLibraryError(f"Impossibile ottenere l'elenco file di riferimento da {registry.name} per la verifica")
     expected_by_name = {f["path"].rsplit("/", 1)[-1]: f.get("size") for f in expected}
 
     try:

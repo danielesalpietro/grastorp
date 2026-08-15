@@ -142,9 +142,10 @@ def test_delete_template_not_found(client):
     assert resp.status_code == 404
 
 
-def _fake_spec(repo_id: str) -> ModelTemplateSpec:
+def _fake_spec(registry, repo_id: str) -> ModelTemplateSpec:
     return ModelTemplateSpec(
         repo_id=repo_id,
+        registry_id=registry.id,
         architecture="mixtral",
         num_experts=8,
         num_experts_active=2,
@@ -157,44 +158,54 @@ def _fake_spec(repo_id: str) -> ModelTemplateSpec:
     )
 
 
-def test_create_template_from_hf(client, monkeypatch):
-    monkeypatch.setattr(hf_metadata_service, "fetch_model_metadata", lambda repo_id: _fake_spec(repo_id))
+def test_create_template_from_registry(client, monkeypatch):
+    monkeypatch.setattr(hf_metadata_service, "fetch_model_metadata", _fake_spec)
 
     resp = client.post(
-        "/api/templates/from-hf",
-        json={"repo_id": "mistralai/Mixtral-8x7B-Instruct-v0.1", "name": "Mixtral (da HF)"},
+        "/api/templates/from-registry",
+        json={
+            "registry_id": "huggingface",
+            "repo_id": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+            "name": "Mixtral (da HF)",
+        },
     )
     assert resp.status_code == 201
 
     data = resp.json()
     assert data["name"] == "Mixtral (da HF)"
     assert data["spec"]["repo_id"] == "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    assert data["spec"]["registry_id"] == "huggingface"
     assert data["spec"]["num_layers"] == 32
 
 
-def test_create_template_from_hf_defaults_name_to_repo_id(client, monkeypatch):
-    monkeypatch.setattr(hf_metadata_service, "fetch_model_metadata", lambda repo_id: _fake_spec(repo_id))
+def test_create_template_from_registry_defaults_name_to_repo_id(client, monkeypatch):
+    monkeypatch.setattr(hf_metadata_service, "fetch_model_metadata", _fake_spec)
 
-    resp = client.post("/api/templates/from-hf", json={"repo_id": "org/some-model"})
+    resp = client.post("/api/templates/from-registry", json={"registry_id": "huggingface", "repo_id": "org/some-model"})
     assert resp.json()["name"] == "org/some-model"
 
 
-def test_create_template_from_hf_propagates_error(client, monkeypatch):
-    def _raise(repo_id: str):
+def test_create_template_from_registry_propagates_error(client, monkeypatch):
+    def _raise(registry, repo_id):
         raise hf_metadata_service.HFMetadataError("repo introvabile")
 
     monkeypatch.setattr(hf_metadata_service, "fetch_model_metadata", _raise)
 
-    resp = client.post("/api/templates/from-hf", json={"repo_id": "org/does-not-exist"})
+    resp = client.post("/api/templates/from-registry", json={"registry_id": "huggingface", "repo_id": "org/does-not-exist"})
     assert resp.status_code == 502
 
 
-def test_sync_template_from_hf_updates_spec(client, monkeypatch):
+def test_create_template_from_registry_not_found(client):
+    resp = client.post("/api/templates/from-registry", json={"registry_id": "does-not-exist", "repo_id": "org/model"})
+    assert resp.status_code == 404
+
+
+def test_sync_template_from_registry_updates_spec(client, monkeypatch):
     created = client.post("/api/templates", json=MODEL_PAYLOAD).json()
 
-    monkeypatch.setattr(hf_metadata_service, "fetch_model_metadata", lambda repo_id: _fake_spec(repo_id))
+    monkeypatch.setattr(hf_metadata_service, "fetch_model_metadata", _fake_spec)
 
-    resp = client.post(f"/api/templates/{created['id']}/sync-hf")
+    resp = client.post(f"/api/templates/{created['id']}/sync-registry")
     assert resp.status_code == 200
 
     data = resp.json()
@@ -204,15 +215,15 @@ def test_sync_template_from_hf_updates_spec(client, monkeypatch):
     assert data["spec"]["quantization"] == "bfloat16"
 
 
-def test_sync_template_from_hf_not_found(client):
-    resp = client.post("/api/templates/does-not-exist/sync-hf")
+def test_sync_template_from_registry_not_found(client):
+    resp = client.post("/api/templates/does-not-exist/sync-registry")
     assert resp.status_code == 404
 
 
-def test_sync_template_from_hf_rejects_docker_template(client):
+def test_sync_template_from_registry_rejects_docker_template(client):
     created = client.post("/api/templates", json=DOCKER_PAYLOAD).json()
 
-    resp = client.post(f"/api/templates/{created['id']}/sync-hf")
+    resp = client.post(f"/api/templates/{created['id']}/sync-registry")
     assert resp.status_code == 400
 
 

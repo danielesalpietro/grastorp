@@ -117,6 +117,44 @@ class LibraryConfig(BaseModel):
     datastore_id: str = "local"
 
 
+class RegistryProvider(str, Enum):
+    HUGGINGFACE = "huggingface"
+    # Endpoint compatibile con le REST API di Hugging Face Hub (es. mirror
+    # aziendale/self-hosted), non un provider diverso: stessa integrazione,
+    # solo base_url/api_key diversi.
+    CUSTOM = "custom"
+
+
+class ModelRegistry(BaseModel):
+    """Sorgente da cui cercare modelli e ricavarne le caratteristiche tecniche.
+
+    Il registry Hugging Face di default (id 'huggingface') è seminato
+    all'avvio e non può essere disabilitato né eliminato.
+    """
+
+    id: str
+    name: str
+    provider: RegistryProvider
+    base_url: str
+    api_key: str | None = None
+    enabled: bool = True
+    created_at: str
+
+
+class ModelRegistryCreateRequest(BaseModel):
+    name: str
+    provider: RegistryProvider = RegistryProvider.CUSTOM
+    base_url: str | None = None
+    api_key: str | None = None
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _validate_base_url(self) -> "ModelRegistryCreateRequest":
+        if self.provider is RegistryProvider.CUSTOM and not self.base_url:
+            raise ValueError("Un registry custom richiede base_url")
+        return self
+
+
 class OffloadConfig(BaseModel):
     enabled: bool = False
     cpu_offload_gb: float = Field(default=0, ge=0)
@@ -184,6 +222,7 @@ class ModelTemplateSpec(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     repo_id: str
+    registry_id: str = "huggingface"
     architecture: str
     num_experts: int | None = None
     num_experts_active: int | None = None
@@ -248,11 +287,12 @@ class Template(BaseModel):
         return self
 
 
-class TemplateFromHFRequest(BaseModel):
-    """Crea un template modello interrogando Hugging Face Hub per le caratteristiche tecniche."""
+class TemplateFromRegistryRequest(BaseModel):
+    """Crea un template modello interrogando un registry per le caratteristiche tecniche."""
 
     model_config = ConfigDict(protected_namespaces=())
 
+    registry_id: str
     repo_id: str
     name: str | None = None
     description: str = ""

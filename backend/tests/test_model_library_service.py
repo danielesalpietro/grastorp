@@ -221,7 +221,7 @@ def test_verify_library_scopes_search_to_repo_cache_folder(fake_client, monkeypa
     monkeypatch.setattr(
         hf_metadata_service,
         "list_safetensor_files",
-        lambda repo_id: [{"path": "model-00001.safetensors", "size": 100}],
+        lambda registry, repo_id: [{"path": "model-00001.safetensors", "size": 100}],
     )
     found = json.dumps([{"name": "model-00001.safetensors", "size": 100}]).encode()
     fake_client.containers.run = lambda image, **kwargs: _FakeContainer(status="exited", exit_code=0, logs=found)
@@ -235,7 +235,7 @@ def test_verify_library_scopes_search_to_repo_cache_folder(fake_client, monkeypa
 def test_verify_library_passes_expected_cache_folder_env(fake_client, monkeypatch):
     template = _model_template(library_status=LibraryStatus.READY)
     monkeypatch.setattr(
-        hf_metadata_service, "list_safetensor_files", lambda repo_id: [{"path": "x.safetensors", "size": 1}]
+        hf_metadata_service, "list_safetensor_files", lambda registry, repo_id: [{"path": "x.safetensors", "size": 1}]
     )
     captured = {}
 
@@ -255,7 +255,7 @@ def test_verify_library_marks_error_when_file_missing(fake_client, monkeypatch):
     monkeypatch.setattr(
         hf_metadata_service,
         "list_safetensor_files",
-        lambda repo_id: [{"path": "model-00001.safetensors", "size": 100}],
+        lambda registry, repo_id: [{"path": "model-00001.safetensors", "size": 100}],
     )
     fake_client.containers.run = lambda image, **kwargs: _FakeContainer(status="exited", exit_code=0, logs=b"[]")
 
@@ -267,7 +267,7 @@ def test_verify_library_marks_error_when_file_missing(fake_client, monkeypatch):
 
 def test_verify_library_raises_without_reference_data(fake_client, monkeypatch):
     template = _model_template(library_status=LibraryStatus.READY)
-    monkeypatch.setattr(hf_metadata_service, "list_safetensor_files", lambda repo_id: [])
+    monkeypatch.setattr(hf_metadata_service, "list_safetensor_files", lambda registry, repo_id: [])
 
     with pytest.raises(model_library_service.ModelLibraryError):
         model_library_service.verify_library(template)
@@ -276,7 +276,7 @@ def test_verify_library_raises_without_reference_data(fake_client, monkeypatch):
 def test_verify_library_rejects_when_never_downloaded(fake_client, monkeypatch):
     template = _model_template(library_status=LibraryStatus.NOT_DOWNLOADED)
     monkeypatch.setattr(
-        hf_metadata_service, "list_safetensor_files", lambda repo_id: [{"path": "x.safetensors", "size": 1}]
+        hf_metadata_service, "list_safetensor_files", lambda registry, repo_id: [{"path": "x.safetensors", "size": 1}]
     )
 
     with pytest.raises(model_library_service.ModelLibraryError):

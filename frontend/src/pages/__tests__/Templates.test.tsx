@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { Templates } from "../Templates";
 import { TasksProvider } from "../../context/TasksContext";
+
+const HF_REGISTRY = {
+  id: "huggingface",
+  name: "Hugging Face",
+  provider: "huggingface",
+  base_url: "https://huggingface.co",
+  api_key: null,
+  enabled: true,
+  created_at: "2024-01-01T00:00:00+00:00",
+};
 
 const MODEL_TEMPLATE = {
   id: "t1",
@@ -11,6 +21,7 @@ const MODEL_TEMPLATE = {
   enabled: true,
   spec: {
     repo_id: "mistralai/Mixtral-8x22B-Instruct-v0.1",
+    registry_id: "huggingface",
     architecture: "mixtral",
     num_experts: 8,
     num_experts_active: 2,
@@ -39,8 +50,8 @@ const listTemplates = vi.fn().mockResolvedValue([MODEL_TEMPLATE]);
 const createTemplate = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
 const deleteTemplate = vi.fn().mockResolvedValue(undefined);
 const updateTemplate = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
-const createTemplateFromHF = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
-const syncTemplateFromHF = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
+const createTemplateFromRegistry = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
+const syncTemplateFromRegistry = vi.fn().mockResolvedValue(MODEL_TEMPLATE);
 const downloadToLibrary = vi.fn().mockResolvedValue({
   ...MODEL_TEMPLATE,
   spec: { ...MODEL_TEMPLATE.spec, library_status: "downloading", library_progress_percent: 0 },
@@ -51,6 +62,13 @@ const deleteLibrary = vi.fn().mockResolvedValue({
   ...READY_TEMPLATE,
   spec: { ...READY_TEMPLATE.spec, library_status: "not_downloaded" },
 });
+const listRegistries = vi.fn().mockResolvedValue([HF_REGISTRY]);
+const createRegistry = vi.fn().mockResolvedValue({ ...HF_REGISTRY, id: "r2", name: "Mirror" });
+const updateRegistry = vi.fn().mockResolvedValue(HF_REGISTRY);
+const deleteRegistry = vi.fn().mockResolvedValue(undefined);
+const searchRegistryModels = vi.fn().mockResolvedValue([
+  { repo_id: "deepseek-ai/deepseek-moe-16b-chat", downloads: 1234, likes: 42, pipeline_tag: "text-generation" },
+]);
 
 vi.mock("../../api/client", () => ({
   api: {
@@ -58,12 +76,17 @@ vi.mock("../../api/client", () => ({
     createTemplate: (...args: unknown[]) => createTemplate(...args),
     deleteTemplate: (...args: unknown[]) => deleteTemplate(...args),
     updateTemplate: (...args: unknown[]) => updateTemplate(...args),
-    createTemplateFromHF: (...args: unknown[]) => createTemplateFromHF(...args),
-    syncTemplateFromHF: (...args: unknown[]) => syncTemplateFromHF(...args),
+    createTemplateFromRegistry: (...args: unknown[]) => createTemplateFromRegistry(...args),
+    syncTemplateFromRegistry: (...args: unknown[]) => syncTemplateFromRegistry(...args),
     downloadToLibrary: (...args: unknown[]) => downloadToLibrary(...args),
     getLibraryStatus: (...args: unknown[]) => getLibraryStatus(...args),
     verifyLibrary: (...args: unknown[]) => verifyLibrary(...args),
     deleteLibrary: (...args: unknown[]) => deleteLibrary(...args),
+    listRegistries: (...args: unknown[]) => listRegistries(...args),
+    createRegistry: (...args: unknown[]) => createRegistry(...args),
+    updateRegistry: (...args: unknown[]) => updateRegistry(...args),
+    deleteRegistry: (...args: unknown[]) => deleteRegistry(...args),
+    searchRegistryModels: (...args: unknown[]) => searchRegistryModels(...args),
   },
 }));
 
@@ -105,26 +128,31 @@ describe("Templates", () => {
     );
   });
 
-  it("sincronizza un template modello da Hugging Face", async () => {
+  it("sincronizza un template modello dal registry", async () => {
     renderPage();
     await screen.findByText("Mixtral 8x22B");
 
-    fireEvent.click(screen.getByText("Sync da HF"));
+    fireEvent.click(screen.getByText("Sync da Registry"));
 
-    await waitFor(() => expect(syncTemplateFromHF).toHaveBeenCalledWith("t1"));
+    await waitFor(() => expect(syncTemplateFromRegistry).toHaveBeenCalledWith("t1"));
   });
 
-  it("crea un template da Hugging Face inserendo il repo_id", async () => {
+  it("cerca un modello in un registry e lo aggiunge come template", async () => {
     renderPage();
     await screen.findByText("Mixtral 8x22B");
+    await screen.findByText("+ New Registry"); // segnale che i registry sono caricati
 
-    fireEvent.change(screen.getByLabelText("Repo Hugging Face"), {
-      target: { value: "deepseek-ai/deepseek-moe-16b-chat" },
-    });
-    fireEvent.click(screen.getByText("Crea da Hugging Face"));
+    fireEvent.change(screen.getByLabelText("Cerca"), { target: { value: "mixtral" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cerca" }));
+
+    await screen.findByText("deepseek-ai/deepseek-moe-16b-chat");
+    fireEvent.click(screen.getByText("Aggiungi come template"));
 
     await waitFor(() =>
-      expect(createTemplateFromHF).toHaveBeenCalledWith({ repo_id: "deepseek-ai/deepseek-moe-16b-chat" })
+      expect(createTemplateFromRegistry).toHaveBeenCalledWith({
+        registry_id: "huggingface",
+        repo_id: "deepseek-ai/deepseek-moe-16b-chat",
+      })
     );
   });
 
@@ -146,5 +174,31 @@ describe("Templates", () => {
 
     fireEvent.click(screen.getByText("Verifica integrità"));
     await waitFor(() => expect(verifyLibrary).toHaveBeenCalledWith("t2"));
+  });
+
+  it("il registry Hugging Face non può essere disabilitato né eliminato", async () => {
+    renderPage();
+    await screen.findByText("+ New Registry"); // segnale che i registry sono caricati
+
+    const registryLabel = screen.getAllByText("Hugging Face").find((el) => el.tagName === "LABEL")!;
+    const registryRow = registryLabel.closest(".form-row") as HTMLElement;
+    expect(within(registryRow).getByLabelText("Abilitato")).toBeDisabled();
+    expect(within(registryRow).getByRole("button", { name: "Elimina" })).toBeDisabled();
+  });
+
+  it("crea un registry custom", async () => {
+    renderPage();
+    await screen.findByText("+ New Registry");
+
+    fireEvent.click(screen.getByText("+ New Registry"));
+    fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Mirror" } });
+    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://mirror.example" } });
+    fireEvent.click(screen.getByText("Crea registry"));
+
+    await waitFor(() =>
+      expect(createRegistry).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Mirror", base_url: "https://mirror.example" })
+      )
+    );
   });
 });

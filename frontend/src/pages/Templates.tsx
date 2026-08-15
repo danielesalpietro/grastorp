@@ -3,7 +3,11 @@ import {
   api,
   DockerRegistryTemplateSpec,
   LibraryStatus,
+  ModelRegistry,
+  ModelRegistryCreateRequest,
   ModelTemplateSpec,
+  RegistryModelResult,
+  RegistryProvider,
   Template,
   TemplateCreateRequest,
   TemplateType,
@@ -29,9 +33,14 @@ const LIBRARY_LABEL: Record<LibraryStatus, string> = {
   error: "errore Library",
 };
 
+function defaultRegistryForm(): ModelRegistryCreateRequest {
+  return { name: "", provider: "huggingface", base_url: "", api_key: "" };
+}
+
 function defaultModelSpec(): ModelTemplateSpec {
   return {
     repo_id: "",
+    registry_id: "huggingface",
     architecture: "",
     num_experts: null,
     num_experts_active: null,
@@ -82,12 +91,22 @@ export function Templates() {
   const [form, setForm] = useState<TemplateCreateRequest>(defaultForm());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hfRepoId, setHfRepoId] = useState("");
-  const [hfSubmitting, setHfSubmitting] = useState(false);
-  const [hfError, setHfError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [libraryActionId, setLibraryActionId] = useState<string | null>(null);
   const { pushTask } = useTasks();
+
+  const [registries, setRegistries] = useState<ModelRegistry[]>([]);
+  const [showRegistryForm, setShowRegistryForm] = useState(false);
+  const [registryForm, setRegistryForm] = useState<ModelRegistryCreateRequest>(defaultRegistryForm());
+  const [registrySubmitting, setRegistrySubmitting] = useState(false);
+  const [registryError, setRegistryError] = useState<string | null>(null);
+
+  const [searchRegistryId, setSearchRegistryId] = useState("huggingface");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<RegistryModelResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [addingRepoId, setAddingRepoId] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -97,7 +116,12 @@ export function Templates() {
       .finally(() => setLoading(false));
   }, [filter]);
 
+  const reloadRegistries = useCallback(() => {
+    api.listRegistries().then(setRegistries);
+  }, []);
+
   useEffect(reload, [reload]);
+  useEffect(reloadRegistries, [reloadRegistries]);
 
   useEffect(() => {
     const downloading = templates.filter(
@@ -162,13 +186,13 @@ export function Templates() {
     reload();
   }
 
-  async function handleSyncHF(t: Template) {
+  async function handleSyncRegistry(t: Template) {
     setSyncingId(t.id);
     try {
-      await api.syncTemplateFromHF(t.id);
-      pushTask(`Template "${t.name}" sincronizzato da Hugging Face`, "success");
+      await api.syncTemplateFromRegistry(t.id);
+      pushTask(`Template "${t.name}" sincronizzato dal registry`, "success");
     } catch (e) {
-      pushTask(`Sync da HF fallito: ${(e as Error).message}`, "error");
+      pushTask(`Sync fallito: ${(e as Error).message}`, "error");
     } finally {
       setSyncingId(null);
     }
@@ -215,19 +239,74 @@ export function Templates() {
     }
   }
 
-  async function handleCreateFromHF() {
-    setHfSubmitting(true);
-    setHfError(null);
+  async function handleSearchRegistry() {
+    setSearching(true);
+    setSearchError(null);
+    setSearchResults(null);
     try {
-      await api.createTemplateFromHF({ repo_id: hfRepoId });
-      pushTask(`Template creato da Hugging Face (${hfRepoId})`, "success");
-      setHfRepoId("");
+      setSearchResults(await api.searchRegistryModels(searchRegistryId, searchQuery));
+    } catch (e) {
+      setSearchError((e as Error).message);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function handleAddFromRegistry(repoId: string) {
+    setAddingRepoId(repoId);
+    try {
+      await api.createTemplateFromRegistry({ registry_id: searchRegistryId, repo_id: repoId });
+      pushTask(`Template creato da "${repoId}"`, "success");
+      setSearchResults((prev) => prev?.filter((r) => r.repo_id !== repoId) ?? null);
       reload();
     } catch (e) {
-      setHfError((e as Error).message);
+      pushTask(`Creazione fallita: ${(e as Error).message}`, "error");
     } finally {
-      setHfSubmitting(false);
+      setAddingRepoId(null);
     }
+  }
+
+  async function handleCreateRegistry() {
+    setRegistrySubmitting(true);
+    setRegistryError(null);
+    try {
+      await api.createRegistry(registryForm);
+      pushTask(`Registry "${registryForm.name}" creato`, "success");
+      setRegistryForm(defaultRegistryForm());
+      setShowRegistryForm(false);
+      reloadRegistries();
+    } catch (e) {
+      setRegistryError((e as Error).message);
+    } finally {
+      setRegistrySubmitting(false);
+    }
+  }
+
+  async function handleToggleRegistryEnabled(r: ModelRegistry) {
+    try {
+      await api.updateRegistry(r.id, {
+        name: r.name,
+        provider: r.provider,
+        base_url: r.base_url,
+        api_key: r.api_key,
+        enabled: !r.enabled,
+      });
+      pushTask(`Registry "${r.name}" ${r.enabled ? "disabilitato" : "abilitato"}`, "success");
+    } catch (e) {
+      pushTask(`Operazione fallita: ${(e as Error).message}`, "error");
+    }
+    reloadRegistries();
+  }
+
+  async function handleDeleteRegistry(r: ModelRegistry) {
+    if (!confirm(`Eliminare il registry "${r.name}"?`)) return;
+    try {
+      await api.deleteRegistry(r.id);
+      pushTask(`Registry "${r.name}" eliminato`, "success");
+    } catch (e) {
+      pushTask(`Eliminazione fallita: ${(e as Error).message}`, "error");
+    }
+    reloadRegistries();
   }
 
   return (
@@ -256,29 +335,169 @@ export function Templates() {
       </div>
 
       <div className="panel">
-        <p style={{ fontWeight: 600, fontSize: 14 }}>Crea template modello da Hugging Face</p>
+        <p style={{ fontWeight: 600, fontSize: 14 }}>Registry Modelli</p>
         <p className="page-subtitle">
-          Inserisci il repo_id: le caratteristiche tecniche (esperti, layer, parametri, shard...) vengono lette
-          direttamente da Hugging Face Hub.
+          Sorgenti da cui cercare modelli e ricavarne le caratteristiche tecniche. Hugging Face è sempre presente e
+          non disabilitabile; puoi aggiungerne altri (es. un mirror compatibile con le API di Hugging Face).
+        </p>
+        {registries.map((r) => (
+          <div key={r.id} className="form-row" style={{ alignItems: "center" }}>
+            <div className="form-field">
+              <label>{r.name}</label>
+              <div>
+                {r.base_url}
+                {r.api_key && " · API key impostata"}
+              </div>
+            </div>
+            <div className="form-field checkbox">
+              <input
+                id={`registry-enabled-${r.id}`}
+                type="checkbox"
+                checked={r.enabled}
+                disabled={r.id === "huggingface"}
+                onChange={() => handleToggleRegistryEnabled(r)}
+              />
+              <label htmlFor={`registry-enabled-${r.id}`}>Abilitato</label>
+            </div>
+            <button
+              className="btn btn--danger"
+              disabled={r.id === "huggingface"}
+              onClick={() => handleDeleteRegistry(r)}
+            >
+              Elimina
+            </button>
+          </div>
+        ))}
+
+        <div className="toolbar" style={{ marginTop: 8 }}>
+          <button className="btn" onClick={() => setShowRegistryForm((s) => !s)}>
+            {showRegistryForm ? "Annulla" : "+ New Registry"}
+          </button>
+        </div>
+
+        {showRegistryForm && (
+          <div style={{ marginTop: 8 }}>
+            <div className="form-row">
+              <div className="form-field">
+                <label htmlFor="registry-name">Nome</label>
+                <input
+                  id="registry-name"
+                  type="text"
+                  value={registryForm.name}
+                  onChange={(e) => setRegistryForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+              <div className="form-field">
+                <label>Tipo</label>
+                <select
+                  value={registryForm.provider}
+                  onChange={(e) =>
+                    setRegistryForm((f) => ({ ...f, provider: e.target.value as RegistryProvider }))
+                  }
+                >
+                  <option value="huggingface">Hugging Face</option>
+                  <option value="custom">Custom (compatibile HF)</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-field">
+                <label htmlFor="registry-base-url">Base URL</label>
+                <input
+                  id="registry-base-url"
+                  type="text"
+                  placeholder="https://huggingface.co"
+                  value={registryForm.base_url ?? ""}
+                  onChange={(e) => setRegistryForm((f) => ({ ...f, base_url: e.target.value }))}
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="registry-api-key">API key (opzionale)</label>
+                <input
+                  id="registry-api-key"
+                  type="password"
+                  value={registryForm.api_key ?? ""}
+                  onChange={(e) => setRegistryForm((f) => ({ ...f, api_key: e.target.value }))}
+                />
+              </div>
+            </div>
+            {registryError && <div className="empty-state">{registryError}</div>}
+            <div className="toolbar" style={{ marginTop: 8 }}>
+              <button
+                className="btn btn--primary"
+                disabled={registrySubmitting || !registryForm.name}
+                onClick={handleCreateRegistry}
+              >
+                Crea registry
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <p style={{ fontWeight: 600, fontSize: 14 }}>Cerca modello in un Registry</p>
+        <p className="page-subtitle">
+          Scegli un registry e cerca per nome (es. "mixtral"): le caratteristiche tecniche vengono lette
+          direttamente dal registry scelto.
         </p>
         <div className="form-row">
           <div className="form-field">
-            <label htmlFor="hf-repo-id">Repo Hugging Face</label>
+            <label htmlFor="search-registry">Registry</label>
+            <select id="search-registry" value={searchRegistryId} onChange={(e) => setSearchRegistryId(e.target.value)}>
+              {registries
+                .filter((r) => r.enabled)
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="form-field">
+            <label htmlFor="search-query">Cerca</label>
             <input
-              id="hf-repo-id"
+              id="search-query"
               type="text"
-              placeholder="mistralai/Mixtral-8x7B-Instruct-v0.1"
-              value={hfRepoId}
-              onChange={(e) => setHfRepoId(e.target.value)}
+              placeholder="mixtral"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
         </div>
-        {hfError && <div className="empty-state">{hfError}</div>}
+        {searchError && <div className="empty-state">{searchError}</div>}
         <div className="toolbar" style={{ marginTop: 8 }}>
-          <button className="btn btn--primary" disabled={hfSubmitting || !hfRepoId} onClick={handleCreateFromHF}>
-            Crea da Hugging Face
+          <button className="btn btn--primary" disabled={searching || !searchQuery} onClick={handleSearchRegistry}>
+            {searching ? "Ricerca..." : "Cerca"}
           </button>
         </div>
+
+        {searchResults && (
+          <div style={{ marginTop: 8 }}>
+            {searchResults.length === 0 ? (
+              <div className="empty-state">Nessun risultato</div>
+            ) : (
+              searchResults.map((r) => (
+                <div key={r.repo_id} className="form-row" style={{ alignItems: "center" }}>
+                  <div className="form-field">
+                    <label>{r.repo_id}</label>
+                    <div>
+                      {r.downloads != null ? `${r.downloads} download` : ""}
+                      {r.likes != null ? ` · ${r.likes} like` : ""}
+                    </div>
+                  </div>
+                  <button
+                    className="btn"
+                    disabled={addingRepoId === r.repo_id}
+                    onClick={() => handleAddFromRegistry(r.repo_id)}
+                  >
+                    {addingRepoId === r.repo_id ? "Aggiunta..." : "Aggiungi come template"}
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {showForm && (
@@ -327,12 +546,25 @@ export function Templates() {
             <>
               <div className="form-row">
                 <div className="form-field">
-                  <label>Repo Hugging Face</label>
+                  <label>Repo</label>
                   <input
                     type="text"
                     value={(form.spec as ModelTemplateSpec).repo_id}
                     onChange={(e) => updateModelSpec({ repo_id: e.target.value })}
                   />
+                </div>
+                <div className="form-field">
+                  <label>Registry</label>
+                  <select
+                    value={(form.spec as ModelTemplateSpec).registry_id}
+                    onChange={(e) => updateModelSpec({ registry_id: e.target.value })}
+                  >
+                    {registries.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="form-field">
                   <label>Architettura</label>
@@ -534,8 +766,15 @@ export function Templates() {
               <>
                 <div className="form-row">
                   <div className="form-field">
-                    <label>Repo Hugging Face</label>
+                    <label>Repo</label>
                     <div>{(t.spec as ModelTemplateSpec).repo_id}</div>
+                  </div>
+                  <div className="form-field">
+                    <label>Registry</label>
+                    <div>
+                      {registries.find((r) => r.id === (t.spec as ModelTemplateSpec).registry_id)?.name ??
+                        (t.spec as ModelTemplateSpec).registry_id}
+                    </div>
                   </div>
                   <div className="form-field">
                     <label>Architettura</label>
@@ -626,8 +865,8 @@ export function Templates() {
                 {t.enabled ? "Disabilita" : "Abilita"}
               </button>
               {t.type === "model" && (
-                <button className="btn" disabled={syncingId === t.id} onClick={() => handleSyncHF(t)}>
-                  {syncingId === t.id ? "Sync in corso..." : "Sync da HF"}
+                <button className="btn" disabled={syncingId === t.id} onClick={() => handleSyncRegistry(t)}>
+                  {syncingId === t.id ? "Sync in corso..." : "Sync da Registry"}
                 </button>
               )}
               {t.type === "model" &&
