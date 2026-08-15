@@ -43,6 +43,8 @@ Funzionante oggi:
 - Deploy con framework **vLLM**, in modalità GPU (una o più schede, con
   CPU offload opzionale) o CPU Only.
 - Gestione risorse (CPU, RAM, GPU) e rete (IP/porta) per ogni deployment.
+- Persistenza dei deployment su SQLite, su volume Docker: sopravvivono al
+  riavvio del container.
 
 Ancora stub (segnaposto in UI, non funzionanti):
 
@@ -71,6 +73,9 @@ frontend/   React + Vite + TypeScript — interfaccia web
   gira containerizzato.
 - Ogni deployment è un container separato che espone un endpoint API
   compatibile OpenAI sulla porta configurata.
+- I deployment sono persistiti in un database SQLite su un volume Docker
+  dedicato (`grastorp-data`, montato su `/app/data`); il path è
+  configurabile con la variabile d'ambiente `GRASTORP_DB_PATH`.
 
 ## Requisiti
 
