@@ -111,6 +111,39 @@ passi — utile a chi riprende il lavoro in un secondo momento.
   dichiarato come stub e esplicitamente rifiutato in creazione finché non
   si implementa.
 
+## Da dirimere
+
+- **Nome del branch per il lavoro Networking/Security.** Il 2026-08-19 è
+  stato creato `claude/networking-security-t4k9pw` (da `develop`, vuoto)
+  su richiesta diretta di aprire un branch per questo lavoro. Verificando
+  però le issue collegate è emerso che una sessione precedente aveva già
+  usato **lo stesso nome di branch** per lo stesso scopo: PR
+  [#7](https://github.com/danielesalpietro/grastorp/pull/7) ("Add
+  Networking and Security monitoring pages") era stata mergiata dentro
+  `claude/networking-security-t4k9pw` (non in `develop`), e la issue
+  [#8](https://github.com/danielesalpietro/grastorp/issues/8) — aperta
+  subito dopo, sempre da lavoro precedente — dichiara esplicitamente quel
+  branch "orfano" (il lavoro della PR #7 era solo un elenco in sola
+  lettura delle reti Docker + profilo di sicurezza, da rifare) e indica
+  **un nome diverso** per il branch di ripartenza:
+  `claude/networking-linux-docker-nativo`. Il branch remoto
+  `claude/networking-security-t4k9pw` originale non esiste più (verosimilmente
+  cancellato dopo il merge della PR #7): quello ricreato il 2026-08-19 è
+  vuoto, nessun lavoro perso, ma il nome coincide con qualcosa che la issue
+  #8 segnala esplicitamente come da evitare.
+  **Da decidere prima di iniziare il lavoro**: rinominare/sostituire il
+  branch con `claude/networking-linux-docker-nativo` come indicato dalla
+  issue #8 (coerente col piano a fasi già scritto lì — Fase 0 CRUD reti
+  Docker, Fase 1 macvlan, Fase 2 rilevamento NIC, Fase 3 VLAN/bonding,
+  Fase 4 firewall `DOCKER-USER`), oppure tenere il nome attuale accettando
+  l'incoerenza. Vedi anche [kickstart-berlin](https://github.com/danielesalpietro/kickstart-berlin)
+  (repo di provisioning host che ospiterà Grastorp): la convenzione
+  Datastore locale che già usa (`/grastorp/volumes/<UUID>` con symlink
+  `/grastorp/volumes/datastore`) non è ancora allineata con l'attuale
+  `model_library_service.py` di Grastorp, che si appoggia al volume Docker
+  `local` di default — punto da riconciliare quando si riprende in mano
+  anche lo storage.
+
 ## Prossimi passi
 
 1. Immagine vLLM CPU-ready per far funzionare davvero la modalità CPU Only
