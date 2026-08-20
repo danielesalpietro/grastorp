@@ -1,4 +1,4 @@
-# Studio di fattibilità: CLI per Grastorp (`grastorpcli`)
+# Studio di fattibilità: CLI per Grastorp (`osxcli`)
 
 > Nota: questo documento è **solo uno studio di fattibilità**. Non introduce
 > codice, non definisce un piano di implementazione impegnativo e non va
@@ -20,8 +20,8 @@ descrive esso stesso come un "hypervisor" per modelli MoE (vedi README):
 dove ESXi virtualizza macchine, Grastorp "virtualizza" deployment di
 modelli come container. La stessa logica di namespace (`esxcli storage
 core device list`, `esxcli network nic list`, `esxcli vm process list`) si
-presta bene al dominio di Grastorp (`grastorpcli storage datastore list`,
-`grastorpcli deployment list`, `grastorpcli gpu list`).
+presta bene al dominio di Grastorp (`osxcli storage datastore list`,
+`osxcli deployment list`, `osxcli gpu list`).
 
 ## 2. Metodo
 
@@ -58,8 +58,8 @@ lavoro sul backend, non solo sulla CLI.
 ## 4. Fattibilità per area
 
 ### 4.1 Host / GPU — **Alta fattibilità**
-Endpoint stabili, sincroni, senza side-effect. Un `grastorpcli host info` o
-`grastorpcli gpu list --format json` è implementabile subito come thin
+Endpoint stabili, sincroni, senza side-effect. Un `osxcli host info` o
+`osxcli gpu list --format json` è implementabile subito come thin
 wrapper su `GET /api/system/host` e `GET /api/system/gpus`. Nessun
 prerequisito bloccante.
 
@@ -79,11 +79,11 @@ all'utente della CLI, non da nascondere:
 CRUD template e comandi `library download/status/verify/remove` sono
 implementabili 1:1. Va però segnalato chiaramente nella documentazione
 della CLI (come fa già il README del progetto) che il download reale non è
-stato validato end-to-end: un comando `grastorpcli template library
+stato validato end-to-end: un comando `osxcli template library
 download` userebbe un percorso di codice testato solo con mock.
 
 ### 4.4 Registry — **Alta fattibilità**
-CRUD + ricerca (`grastorpcli registry search <id> <query>`) mappano
+CRUD + ricerca (`osxcli registry search <id> <query>`) mappano
 direttamente sugli endpoint esistenti.
 
 ### 4.5 Storage / Datastore — **Alta fattibilità per `local`/`nfs`, non fattibile per `iscsi`**
@@ -95,7 +95,7 @@ la CLI prometta funzionalità che l'API rifiuta a runtime.
 
 ### 4.6 Network — **Bassa fattibilità allo stato attuale**
 `GET /api/system/nics` è uno stub dichiarato (vedi commento nel codice
-sorgente). Un namespace `grastorpcli network nic list` oggi ritornerebbe
+sorgente). Un namespace `osxcli network nic list` oggi ritornerebbe
 dati vuoti o fasulli — esperienza peggiore che non avere il comando. Da
 posticipare a dopo l'implementazione del rilevamento reale delle interfacce
 di rete lato backend.
@@ -163,19 +163,19 @@ sistema.
   potenziale degli schemi Pydantic già definiti in `schemas.py` per
   validazione lato client e per generare `--help` accurati senza
   duplicare la definizione dei campi.
-- **Distribuzione**: pacchetto `pip install grastorpcli` separato dal
+- **Distribuzione**: pacchetto `pip install osxcli` separato dal
   backend (analogo al vCLI di VMware, distribuito indipendentemente da
   ESXi), configurabile con `GRASTORP_API_URL` (+ futura API key quando
   esisterà, vedi §5.1).
 - **Struttura comandi** (esempio, non definitivo):
   ```
-  grastorpcli host info
-  grastorpcli gpu list [--format json]
-  grastorpcli deployment list|create|start|stop|delete
-  grastorpcli template list|create|sync-registry|library download|library status
-  grastorpcli registry list|create|search
-  grastorpcli storage datastore list|create|delete
-  grastorpcli storage library-config get|set
+  osxcli host info
+  osxcli gpu list [--format json]
+  osxcli deployment list|create|start|stop|delete
+  osxcli template list|create|sync-registry|library download|library status
+  osxcli registry list|create|search
+  osxcli storage datastore list|create|delete
+  osxcli storage library-config get|set
   ```
 - **Non esporre ancora**: `network nic *` (stub), `storage datastore
   iscsi` (rifiutato dal backend), `deployment console/logs` (nessun
